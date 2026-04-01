@@ -124,3 +124,29 @@ create policy "Leave or owner removes members." on document_members for delete
     user_id = auth.uid()
     or public.is_document_owner(document_id)
   );
+
+-- 5. Document Versions — stores full Yjs snapshots for version history
+create table public.document_versions (
+  id uuid default gen_random_uuid() primary key,
+  document_id uuid references public.documents(id) on delete cascade not null,
+  yjs_state text not null,             -- full Yjs snapshot encoded as base64
+  created_by uuid references public.profiles(id),
+  label text default 'Auto-save',
+  created_at timestamptz default now() not null
+);
+alter table public.document_versions enable row level security;
+create policy "Anyone can view versions." on document_versions for select using (true);
+create policy "Anyone can insert versions." on document_versions for insert with check (true);
+
+-- 6. Document Access Requests — non-members request access, owners approve/reject
+create table public.document_access_requests (
+  id uuid default gen_random_uuid() primary key,
+  document_id uuid references public.documents(id) on delete cascade not null,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  requested_role app_role not null,
+  status text default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  created_at timestamptz default now() not null
+);
+alter table public.document_access_requests enable row level security;
+create policy "Own access requests." on document_access_requests for all
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
