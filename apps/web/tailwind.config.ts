@@ -15,7 +15,7 @@ const config: Config = {
         mono: ["var(--font-inter)", "Inter", "monospace"],
       },
       colors: {
-        // CanvasAI Design Tokens
+        // Lumina Write design tokens
         canvas: {
           bg: "var(--color-background)",
           surface: "var(--color-surface)",

@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* =========================================================
-   Google Fonts — CanvasAI Design System
+   Google Fonts — Lumina Write Design System
    ========================================================= */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap');
 
@@ -214,8 +214,8 @@ body {
     background: rgba(210, 187, 255, 0.1);
   }
 
-  /* AI / accent chip */
-  .chip-ai {
+  /* Accent chip */
+  .chip-accent {
     @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold;
     background: rgba(210, 187, 255, 0.12);
     color: var(--color-primary);

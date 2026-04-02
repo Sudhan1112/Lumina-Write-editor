@@ -1,97 +1,291 @@
 # Lumina Write
 
-A real-time collaborative document editor built for the GUVI Hackathon. Multiple users can write together in the same document simultaneously, with live cursors, presence awareness, version history, and an AI writing assistant powered by Grok.
+Real-time collaborative text editor built for GUVI Hackathon (Track 1).
 
-**Live demo:** [lumina-write.vercel.app](https://lumina-write.vercel.app)
+## Live Demo
 
----
+https://lumina-write-editor.vercel.app/
 
-## Features
+## Demo Video
 
-- **Real-time collaboration** — Conflict-free concurrent editing via Yjs CRDTs, synced over Socket.IO WebSockets
-- **Live presence** — Colored cursors and avatar bar showing who is editing right now
-- **Rich text editor** — TipTap v2 toolbar with headings, bold/italic/underline, links, image blocks, font family, text color, and highlight
-- **Document outline** — Auto-generated sidebar outline from heading nodes
-- **Version history** — Save and restore named snapshots of the Yjs document state
-- **Sharing & access control** — Invite collaborators by email, assign roles (viewer / commenter / editor / admin), revoke access
-- **Access request system** — Users without access can request it; owners approve or reject from the share modal
-- **AI writing assistant** — Lumina AI panel powered by Grok (`grok-beta`) with chat, quick-ask prompts, and a prompt library; streaming completions inline in the editor
-- **Template gallery** — One-click document creation from 10 templates (blank, meeting notes, blog post, resume, PRD, and more)
-- **Dashboard** — Grid and list views, sort options, trash/restore, notifications for shared documents
-- **Authentication** — Google OAuth and email/password sign-in via Supabase Auth
-- **Responsive design** — Mobile bottom nav, collapsible sidebar, floating action button
+(Add your demo video link here)
+
+- Track: Real-time Collaborative Text Editor
+- Role: Full-stack developer
+- Monorepo: `apps/web` + `apps/sync-server`
+- Live app: https://lumina-write-editor.vercel.app/
 
 ---
 
-## Tech Stack
+## 1. Product Overview
 
-| Layer | Technology |
-|---|---|
-| Frontend | Next.js 14 (App Router), React 18, TypeScript |
-| Styling | Tailwind CSS 3 with custom design tokens |
-| Rich text | TipTap v2 (ProseMirror), custom extensions |
-| Real-time sync | Yjs (CRDT), Socket.IO client |
-| Sync server | Node.js, Express, Socket.IO server |
-| Database & Auth | Supabase (PostgreSQL, Row Level Security, Auth) |
-| AI | xAI Grok API (`grok-beta`) — streaming completions |
-| Deployment | Vercel (frontend), Render (sync server) |
+Lumina Write is a Google Docs-style collaborative editor where multiple users can:
+
+- Create and manage documents
+- Share with role-based permissions
+- Co-edit in real time with CRDT synchronization
+- View collaborator presence and cursor colors
+- Request access to private documents
+- Save and restore version snapshots
+- Review with a full comment workflow (`commenter` role is now active)
+
+### Key capabilities
+
+- Authentication: Supabase Auth (Google OAuth + email/password)
+- Collaboration: Yjs CRDT + Socket.IO sync server
+- Authorization: PostgreSQL + Row Level Security (RLS)
+- Permissions: `owner`, `admin`, `editor`, `commenter`, `viewer`
+- Persistence: debounced Yjs state save (2s) to PostgreSQL
 
 ---
 
-## Monorepo Structure
+## 2. High-Level Architecture
 
-```
-lumina-write/
-├── apps/
-│   ├── web/                        # Next.js 14 frontend (Vercel)
-│   │   ├── src/
-│   │   │   ├── app/
-│   │   │   │   ├── api/            # Route handlers
-│   │   │   │   │   ├── documents/  # CRUD, share, access, versions
-│   │   │   │   │   ├── users/      # Email search
-│   │   │   │   │   └── ai/         # Grok completion + template
-│   │   │   │   ├── doc/[id]/       # Editor page
-│   │   │   │   ├── login/          # Auth page
-│   │   │   │   └── auth/callback/  # OAuth redirect handler
-│   │   │   ├── components/
-│   │   │   │   ├── Editor.tsx          # Main TipTap editor (toolbar, outline, panels)
-│   │   │   │   ├── ShareModal.tsx      # Member invite & role management
-│   │   │   │   ├── VersionHistoryPanel.tsx
-│   │   │   │   ├── AIAssistantPanel.tsx
-│   │   │   │   ├── PresenceBar.tsx     # Live collaborator avatars
-│   │   │   │   └── editorExtensions.ts # Custom TipTap extensions
-│   │   │   ├── hooks/
-│   │   │   │   └── useCollabEditor.ts  # Yjs + Socket.IO wiring
-│   │   │   └── lib/
-│   │   │       ├── supabase/       # Browser, server, admin clients
-│   │   │       ├── cursorColors.ts
-│   │   │       ├── http.ts
-│   │   │       └── notify.ts
-│   │   └── package.json
-│   └── sync-server/                # Express + Socket.IO (Render)
-│       └── src/
-│           ├── index.ts            # Socket.IO server, room management
-│           ├── yjsManager.ts       # In-memory Yjs docs, debounced persistence
-│           └── auth.ts             # JWT verification middleware
-├── supabase/
-│   ├── schema.sql                  # Full database schema + RLS policies
-│   └── patches/                    # Migration patches
-├── .env.example                    # Environment variable template (no secrets)
-└── package.json                    # npm workspaces root
+```mermaid
+graph TB
+    subgraph Frontend (Vercel)
+        A[Next.js 14 App Router]
+        B[TipTap editor / ProseMirror]
+        C[Yjs Doc in browser]
+    end
+
+    subgraph Sync Server (Render)
+        D[Express + Socket.IO]
+        E[In-memory Yjs Doc manager]
+    end
+
+    subgraph Supabase
+        F[Auth]
+        G[PostgreSQL]
+        H[RLS + SECURITY DEFINER helpers]
+    end
+
+    A -->|Route Handlers| G
+    A -->|OAuth callback| F
+    B --> C
+    C -->|doc:update / doc:broadcast| D
+    D --> E
+    E -->|2s debounced persist| G
+    D -->|JWT verification| F
+    D -->|Document access checks| G
 ```
 
+### Data flow (user types a character)
+
+```mermaid
+sequenceDiagram
+    participant U as User A (Browser)
+    participant YC as Yjs Doc (Client)
+    participant S as Sync Server
+    participant YS as Yjs Doc (Server)
+    participant DB as Supabase
+    participant U2 as User B (Browser)
+
+    U->>YC: TipTap transaction
+    YC->>S: emit doc:update (base64 update)
+    S->>S: assert write access
+    S->>YS: apply Yjs update
+    S->>DB: schedule debounced save (2s)
+    S->>U2: emit doc:broadcast
+    U2->>U2: apply remote update
+```
+
+### Data flow (comment workflow)
+
+```mermaid
+sequenceDiagram
+    participant C as Commenter
+    participant API as Next.js API
+    participant DB as Supabase
+    participant O as Owner/Editor/Admin
+
+    C->>API: POST /api/documents/:id/comments
+    API->>API: resolve role + enforce comment permissions
+    API->>DB: insert comment row
+    DB-->>API: created comment
+    API-->>C: comment payload
+    O->>API: PATCH /comments (status: resolved)
+    API->>DB: update status/resolved_by/resolved_at
+    API-->>O: updated comment
+```
+
 ---
 
-## Local Development
+## 3. Tech Stack
+
+| Layer | Technology | Why |
+| --- | --- | --- |
+| Frontend | Next.js 14, React 18, TypeScript | App Router + API routes + typed code |
+| Editor | TipTap v2 (ProseMirror) | Extensible rich text editor |
+| Realtime | Yjs | Conflict-free CRDT merging |
+| Transport | Socket.IO | Rooms, reconnects, fallback transports |
+| Backend data/auth | Supabase (PostgreSQL + Auth) | OAuth + SQL + RLS |
+| Styling | Tailwind CSS | Fast UI iteration |
+| Notifications | react-hot-toast | Lightweight user feedback |
+| Deploy | Vercel (web), Render (sync server) | Good fit for this split architecture |
+| Monorepo | npm workspaces | Shared deps across apps |
+
+---
+
+## 4. Monorepo Structure
+
+```plaintext
+.
+|-- apps/
+|   |-- sync-server/
+|   |   `-- src/
+|   |       |-- index.ts
+|   |       |-- auth.ts
+|   |       `-- yjsManager.ts
+|   `-- web/
+|       `-- src/
+|           |-- app/
+|           |   |-- api/
+|           |   |-- login/
+|           |   |-- doc/[id]/
+|           |   |-- auth/callback/
+|           |   |-- layout.tsx
+|           |   `-- page.tsx
+|           |-- components/
+|           |   |-- Editor.tsx
+|           |   |-- CommentsPanel.tsx
+|           |   |-- ShareModal.tsx
+|           |   |-- VersionHistoryPanel.tsx
+|           |   |-- PresenceBar.tsx
+|           |   `-- editorExtensions.ts
+|           |-- hooks/
+|           |   `-- useCollabEditor.ts
+|           `-- lib/
+|               |-- supabase/
+|               |-- base64.ts
+|               |-- cursorColors.ts
+|               |-- http.ts
+|               `-- notify.ts
+|-- supabase/
+|   |-- schema.sql
+|   `-- patches/
+|       |-- add_admin_role.sql
+|       |-- fix_document_members_rls.sql
+|       `-- add_document_comments.sql
+|-- package.json
+`-- .env.example
+```
+
+---
+
+## 5. API Surface
+
+### Web API routes (`apps/web/src/app/api`)
+
+| Route | Methods | Purpose |
+| --- | --- | --- |
+| `/api/documents` | `GET`, `POST` | List and create documents |
+| `/api/documents/[id]/access` | `GET`, `POST`, `PATCH` | Access state + request/approve flow |
+| `/api/documents/[id]/share` | `GET`, `POST`, `PATCH`, `DELETE` | Invite/update/revoke collaborators |
+| `/api/documents/[id]/versions` | `GET`, `POST` | Version history snapshots |
+| `/api/documents/[id]/comments` | `GET`, `POST`, `PATCH`, `DELETE` | Comment list/create/edit/resolve/delete |
+| `/api/users/search` | `GET` | User lookup for sharing |
+
+### Sync events (`apps/sync-server/src/index.ts`)
+
+- `doc:join`
+- `doc:load`
+- `doc:update`
+- `doc:broadcast`
+- `awareness:update`
+- `awareness:sync`
+- `awareness:diff`
+- `doc:rejected`
+
+---
+
+## 6. Database Schema
+
+Core tables:
+
+- `profiles`
+- `documents`
+- `document_members`
+- `document_versions`
+- `document_comments`
+- `document_access_requests`
+
+```mermaid
+erDiagram
+    PROFILES ||--o{ DOCUMENTS : owns
+    PROFILES ||--o{ DOCUMENT_MEMBERS : belongs_to
+    DOCUMENTS ||--o{ DOCUMENT_MEMBERS : has_members
+    DOCUMENTS ||--o{ DOCUMENT_VERSIONS : has_versions
+    DOCUMENTS ||--o{ DOCUMENT_COMMENTS : has_comments
+    DOCUMENTS ||--o{ DOCUMENT_ACCESS_REQUESTS : has_requests
+    PROFILES ||--o{ DOCUMENT_COMMENTS : writes
+    PROFILES ||--o{ DOCUMENT_ACCESS_REQUESTS : requests
+```
+
+### RLS recursion fix (important design decision)
+
+Naive policies on `documents` and `document_members` can recurse infinitely.
+
+This repo uses `SECURITY DEFINER` helper functions in `supabase/schema.sql`:
+
+- `is_document_member(doc_id)`
+- `is_document_owner(doc_id)`
+
+These helpers break the circular policy dependency.
+
+---
+
+## 7. Permission Matrix
+
+| Capability | owner | admin | editor | commenter | viewer |
+| --- | --- | --- | --- | --- | --- |
+| Open document | Yes | Yes | Yes | Yes | Yes |
+| Edit document body | Yes | Yes | Yes | No | No |
+| See live presence/cursors | Yes | Yes | Yes | Yes | Yes |
+| Create comment | Yes | Yes | Yes | Yes | No |
+| Resolve comment | Yes | Yes | Yes | Yes | No |
+| Reopen comment | Yes | Yes | Yes | Own comment | No |
+| Edit own open comment | Yes | Yes | Yes | Yes | No |
+| Delete comment | Yes | Yes | Yes | Own comment | No |
+| Open share modal + manage members | Yes | No | No | No | No |
+| Approve access requests | Yes | No | No | No | No |
+
+### Notes
+
+- Share/member management is intentionally owner-only in current API handlers.
+- `commenter` can fully participate in review, while document text remains read-only.
+
+---
+
+## 8. Comment Workflow (Implemented)
+
+The `commenter` role is now fully operational through the `document_comments` workflow:
+
+- Comments panel in editor UI
+- Add comment with optional selected-text preview
+- Edit own open comment
+- Resolve/reopen comments by role
+- Delete rules (owner/admin/editor or author)
+- Server-side role checks in `/api/documents/[id]/comments`
+
+### Main files
+
+- `apps/web/src/components/CommentsPanel.tsx`
+- `apps/web/src/app/api/documents/[id]/comments/route.ts`
+- `supabase/schema.sql` (`document_comments` table + policies)
+- `supabase/patches/add_document_comments.sql`
+
+---
+
+## 9. Local Setup
 
 ### Prerequisites
 
 - Node.js 18+
-- An npm account (for workspaces)
-- A [Supabase](https://supabase.com) project
-- An [xAI](https://console.x.ai) API key (for AI features)
+- npm
+- Supabase project
 
-### 1. Clone and install
+### Install
 
 ```bash
 git clone https://github.com/Sudhan1112/Lumina-Write-editor.git
@@ -99,123 +293,161 @@ cd Lumina-Write-editor
 npm install
 ```
 
-### 2. Set up environment variables
-
-Copy the template and fill in your values:
+### Environment
 
 ```bash
 cp .env.example apps/web/.env.local
 cp .env.example apps/sync-server/.env
 ```
 
-**`apps/web/.env.local`**
+`apps/web/.env.local`
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
-SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+SUPABASE_SERVICE_KEY=<service-role-key>
 NEXT_PUBLIC_SYNC_SERVER_URL=http://localhost:4000
-GROK_API_KEY=xai-<your-key>
 ```
 
-**`apps/sync-server/.env`**
+`apps/sync-server/.env`
 
 ```env
 SUPABASE_URL=https://<project>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-SUPABASE_JWT_SECRET=<jwt-secret>
+SUPABASE_SERVICE_KEY=<service-role-key>
 PORT=4000
+CLIENT_URL=http://localhost:3000
 ```
 
-### 3. Set up the database
+### Database setup
 
-Run `supabase/schema.sql` in the Supabase SQL editor. This creates all tables, RLS policies, and the `SECURITY DEFINER` helper functions needed to prevent RLS recursion.
+1. Run `supabase/schema.sql` on a fresh project.
+2. For existing projects, run patches:
 
-If you are migrating an existing project, also run the patches in order:
-
-```
+```plaintext
 supabase/patches/add_admin_role.sql
 supabase/patches/fix_document_members_rls.sql
+supabase/patches/add_document_comments.sql
 ```
 
-### 4. Run the project
+### Run locally
 
 ```bash
-# Terminal 1 — sync server
 npm run dev --workspace=apps/sync-server
-
-# Terminal 2 — Next.js frontend
 npm run dev --workspace=apps/web
 ```
 
-The app will be available at `http://localhost:3000`. The sync server runs on `http://localhost:4000`.
+- Web: `http://localhost:3000`
+- Sync server: `http://localhost:4000`
 
 ---
 
-## Database Schema
+## 10. Developer Scripts
 
-| Table | Purpose |
-|---|---|
-| `profiles` | Auto-created on sign-up; stores name, email, avatar |
-| `documents` | Document records with owner and Yjs state |
-| `document_members` | Many-to-many: user ↔ document with role |
-| `document_versions` | Named Yjs snapshots for version history |
-| `document_access_requests` | Pending/approved/rejected access requests |
+From repo root:
 
-RLS policies are enforced on every table. The `is_document_member` and `is_document_owner` functions use `SECURITY DEFINER` to avoid infinite recursion when policies check membership while the membership table itself has RLS enabled.
-
----
-
-## Deployment
-
-### Frontend — Vercel
-
-1. Connect the GitHub repo to Vercel.
-2. Set the root directory to `apps/web`.
-3. Add all `NEXT_PUBLIC_*`, `SUPABASE_SERVICE_ROLE_KEY`, and `GROK_API_KEY` environment variables in the Vercel project settings.
-
-### Sync Server — Render
-
-1. Create a new Web Service on Render pointing to the repo.
-2. Set the root directory to `apps/sync-server`.
-3. Build command: `npm install && npm run build`
-4. Start command: `npm start`
-5. Add `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, and `PORT` as environment variables.
-
-After deploying, update `NEXT_PUBLIC_SYNC_SERVER_URL` in Vercel to point to your Render service URL.
-
----
-
-## Architecture — Real-Time Collaboration
-
-```
-Browser A                    Sync Server                    Browser B
-─────────                    ───────────                    ─────────
-TipTap Editor                Express + Socket.IO            TipTap Editor
-    │                               │                           │
-    │  socket.emit('yjs-update')    │                           │
-    │──────────────────────────────>│                           │
-    │                               │  socket.to(room).emit()  │
-    │                               │─────────────────────────>│
-    │                               │                           │ applyUpdate()
-    │                               │   awareness broadcast     │
-    │<──────────────────────────────│<─────────────────────────│
-    │  (cursor position, name)      │                           │
+```bash
+npm run dev:web
+npm run dev:server
+npm run dev:all
+npm run build:web
+npm run build:server
 ```
 
-- Each document is a **Yjs Y.Doc** held in memory on the sync server.
-- Updates are binary-encoded and broadcast to all peers in the same Socket.IO room.
-- The **awareness protocol** carries cursor positions and user metadata separately from document content.
-- On reconnect, the server sends the full Yjs state vector so the client can catch up.
-- The sync server debounces a **persistence write** back to Supabase every 5 seconds using the service role key.
+Web workspace only:
+
+```bash
+npm run lint --workspace=apps/web
+npm run build --workspace=apps/web
+```
 
 ---
 
-## Hackathon Scoring Coverage
+## 11. End-to-End Product Story
 
-| Criterion | Implementation |
-|---|---|
-| Code Quality & Structure (25 pts) | Monorepo with npm workspaces, TypeScript throughout, feature-branch git history with conventional commits, sanitized env templates |
-| Features & Functionality (30 pts) | All 8 core features implemented: auth, dashboard, CRUD, real-time editing, sharing, versions, AI assistant, presence |
-| Technical Implementation (25 pts) | Next.js 14 App Router, Supabase RLS, Yjs CRDT, Socket.IO, TipTap v2, Grok streaming API |
-| User Experience & Design (20 pts) | Warm Lumina brand system, Tailwind design tokens, responsive layout, mobile nav, skeleton loading states, toast notifications |
+1. User signs in (Google OAuth or email/password).
+2. Dashboard fetches owned + shared docs via `/api/documents`.
+3. User creates a doc and enters `/doc/[id]`.
+4. Editor initializes TipTap + Yjs + Socket.IO connection.
+5. Sync server verifies JWT, checks document access, joins room.
+6. Typing emits Yjs updates, server rebroadcasts, DB persists state (2s debounce).
+7. Owner shares doc and assigns role.
+8. Collaborators join and see live cursors/presence.
+9. Reviewers add comments in the comments panel.
+10. Team resolves/reopens comments while continuing collaborative writing.
+
+---
+
+## 12. Demo Script (5 minutes)
+
+| Time | Action | Suggested narration |
+| --- | --- | --- |
+| 0:00 | Open app | "Lumina Write is a real-time collaborative editor with role-based access." |
+| 0:30 | Login | "Supabase handles OAuth and sessions." |
+| 1:00 | Dashboard | "I can create docs or start from templates." |
+| 1:30 | Open document | "This is the collaborative editor with presence and versioning." |
+| 2:00 | Open second user | "Now I join from another account." |
+| 2:30 | Live typing | "Both users edit simultaneously; Yjs merges conflicts automatically." |
+| 3:30 | Share modal | "Owner can invite users and assign roles." |
+| 4:00 | Comments panel | "Commenter can review without editing body text." |
+| 4:30 | Version history | "I can save and restore snapshots." |
+| 5:00 | Wrap-up | "Architecture: Next.js + Socket.IO + Yjs + Supabase RLS." |
+
+---
+
+## 13. Demo Readiness Checklist
+
+- [ ] Deployed app opens without console errors
+- [ ] Google OAuth works end to end
+- [ ] Create/rename/delete document flow works
+- [ ] Share flow works for all roles
+- [ ] Commenter can add/resolve/reopen comments
+- [ ] Viewer is read-only for body and comments
+- [ ] Live collaboration works in two browser sessions
+- [ ] Version snapshots save and restore correctly
+- [ ] Missing document route shows graceful error
+- [ ] Backup screen recording is ready
+
+---
+
+## 14. Current Trade-offs
+
+- Sync docs are cached in memory on sync server and persisted with debounce.
+- Socket update rate limiting is not yet implemented.
+- Some large components (`Editor.tsx`, dashboard page) can still be split further.
+- The full repository lint still reports pre-existing issues in unrelated files.
+
+---
+
+## 15. Interview Talking Points
+
+### Why Yjs + Socket.IO?
+
+- Yjs gives deterministic CRDT convergence under concurrent edits.
+- Socket.IO gives rooms, reconnection, middleware auth, and transport fallbacks.
+
+### Hardest DB challenge
+
+- RLS recursion between `documents` and `document_members`.
+- Solved with `SECURITY DEFINER` helper functions.
+
+### What happens during network loss?
+
+- Socket reconnect logic restores room state.
+- Local editing state remains in Yjs and syncs after reconnect.
+
+### How to scale this architecture
+
+- Add Redis adapter for Socket.IO pub/sub.
+- Horizontally scale sync servers behind sticky sessions.
+- Add API/socket rate limiting and DB performance indexes.
+
+---
+
+## 16. Security Notes
+
+- Keep service-role keys server-only.
+- Never expose `SUPABASE_SERVICE_KEY` in client bundles.
+- API routes always verify authenticated user before privileged actions.
+- RLS remains active for direct client table access.
+
+---

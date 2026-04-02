@@ -20,7 +20,6 @@ import {
   Plus,
   RotateCcw,
   Search,
-  Sparkles,
   Trash2,
   User,
   Users,
@@ -96,7 +95,6 @@ const SIDEBAR_NAV = [
 const MOBILE_NAV = [
   { icon: Home, label: 'Home', key: 'home' },
   { icon: FolderOpen, label: 'Files', key: 'documents' },
-  { icon: Sparkles, label: 'AI', key: 'ai' },
   { icon: User, label: 'Account', key: 'account' },
 ]
 

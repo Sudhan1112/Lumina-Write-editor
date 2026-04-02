@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bot, CheckCircle2, Clock, GitBranch, RotateCcw, Save, X } from 'lucide-react'
+import { CheckCircle2, Clock, GitBranch, RotateCcw, Save, X } from 'lucide-react'
 
 interface Version {
   id: string
@@ -9,7 +9,6 @@ interface Version {
   description: string
   author: string
   time: string
-  aiOptimized?: boolean
 }
 
 interface VersionHistoryPanelProps {
@@ -145,12 +144,6 @@ export function VersionHistoryPanel({
                           <p className="text-sm font-semibold" style={{ color: 'var(--color-on-surface)' }}>
                             {version.label}
                           </p>
-                          {version.aiOptimized && (
-                            <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: 'rgba(154,91,43,0.12)', color: 'var(--color-primary)' }}>
-                              <Bot className="h-2.5 w-2.5" />
-                              AI
-                            </span>
-                          )}
                         </div>
                         <div className="mt-2 flex items-center gap-2 text-[11px]" style={{ color: 'var(--color-on-surface-variant)' }}>
                           <Clock className="h-3 w-3" />

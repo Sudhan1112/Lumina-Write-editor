@@ -5,6 +5,7 @@
 -- ============================================================
 
 drop table if exists public.document_access_requests cascade;
+drop table if exists public.document_comments cascade;
 drop table if exists public.document_versions cascade;
 drop table if exists public.document_members cascade;
 drop table if exists public.documents cascade;
@@ -138,7 +139,45 @@ alter table public.document_versions enable row level security;
 create policy "Anyone can view versions." on document_versions for select using (true);
 create policy "Anyone can insert versions." on document_versions for insert with check (true);
 
--- 6. Document Access Requests — non-members request access, owners approve/reject
+-- 6. Document Comments — discussion workflow for commenter/editor/admin/owner roles
+create table public.document_comments (
+  id uuid default gen_random_uuid() primary key,
+  document_id uuid references public.documents(id) on delete cascade not null,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  content text not null check (char_length(trim(content)) > 0 and char_length(content) <= 2000),
+  selection_text text,
+  status text not null default 'open' check (status in ('open', 'resolved')),
+  resolved_at timestamptz,
+  resolved_by uuid references public.profiles(id),
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
+);
+create index if not exists document_comments_document_created_idx
+  on public.document_comments(document_id, created_at desc);
+alter table public.document_comments enable row level security;
+create policy "Members can view comments." on document_comments for select
+  using (public.is_document_owner(document_id) or public.is_document_member(document_id));
+create policy "Members can create own comments." on document_comments for insert
+  with check (
+    auth.uid() = user_id
+    and (public.is_document_owner(document_id) or public.is_document_member(document_id))
+  );
+create policy "Authors can edit own comments." on document_comments for update
+  using (
+    auth.uid() = user_id
+    and (public.is_document_owner(document_id) or public.is_document_member(document_id))
+  )
+  with check (
+    auth.uid() = user_id
+    and (public.is_document_owner(document_id) or public.is_document_member(document_id))
+  );
+create policy "Authors and owners can delete comments." on document_comments for delete
+  using (
+    auth.uid() = user_id
+    or public.is_document_owner(document_id)
+  );
+
+-- 7. Document Access Requests — non-members request access, owners approve/reject
 create table public.document_access_requests (
   id uuid default gen_random_uuid() primary key,
   document_id uuid references public.documents(id) on delete cascade not null,

@@ -14,7 +14,6 @@ import { useSearchParams } from 'next/navigation'
 import {
   Bell,
   Bold,
-  Bot,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -49,8 +48,8 @@ import { getResponseErrorMessage, readResponsePayload } from '@/lib/http'
 import { useCollabEditor } from '@/hooks/useCollabEditor'
 import { PresenceBar } from './PresenceBar'
 import { ShareModal } from './ShareModal'
-import { AIAssistantPanel } from './AIAssistantPanel'
 import { VersionHistoryPanel } from './VersionHistoryPanel'
+import { type CommentItem, CommentsPanel } from './CommentsPanel'
 import { editorExtensions } from './editorExtensions'
 
 type ShareMember = {
@@ -93,6 +92,13 @@ type VersionEntry = {
   profiles?: { email?: string | null; full_name?: string | null; avatar_url?: string | null } | null
 }
 
+type CommentsResponse = {
+  role: string
+  can_comment: boolean
+  can_moderate: boolean
+  comments: CommentItem[]
+}
+
 const TEMPLATE_CONTENT: Record<string, string> = {
   meeting:
     '<h1>Meeting Notes</h1><p>Date:</p><p>Attendees:</p><h2>Agenda</h2><p></p><h2>Discussion</h2><p></p><h2>Action Items</h2><ul><li></li></ul>',
@@ -133,6 +139,8 @@ const COLOR_OPTIONS = [
 const ZOOM_OPTIONS = [90, 100, 110, 125, 140]
 const ROLE_OPTIONS = ['viewer', 'commenter', 'editor', 'admin'] as const
 const EDITABLE_ROLES = new Set(['owner', 'editor', 'admin'])
+const COMMENTABLE_ROLES = new Set(['owner', 'editor', 'admin', 'commenter'])
+const COMMENT_MODERATE_ROLES = new Set(['owner', 'editor', 'admin'])
 
 const warmTheme = {
   background: 'linear-gradient(180deg, #f8f4ec 0%, #f1eadf 100%)',
@@ -214,8 +222,8 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'offline'>('saved')
   const [wordCount, setWordCount] = useState(0)
   const [showOutline, setShowOutline] = useState(true)
-  const [showAIPanel, setShowAIPanel] = useState(false)
   const [showVersionPanel, setShowVersionPanel] = useState(false)
+  const [showCommentsPanel, setShowCommentsPanel] = useState(false)
   const [headings, setHeadings] = useState<OutlineHeading[]>([])
   const [members, setMembers] = useState<ShareMember[]>([])
   const [shareLoadError, setShareLoadError] = useState<string | null>(null)
@@ -233,6 +241,14 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
   const [snapshotSaving, setSnapshotSaving] = useState(false)
+  const [comments, setComments] = useState<CommentItem[]>([])
+  const [commentsLoading, setCommentsLoading] = useState(false)
+  const [commentsError, setCommentsError] = useState('')
+  const [commentDraft, setCommentDraft] = useState('')
+  const [addingComment, setAddingComment] = useState(false)
+  const [commentActionId, setCommentActionId] = useState<string | null>(null)
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
+  const [editingCommentDraft, setEditingCommentDraft] = useState('')
 
   const titleRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -318,6 +334,8 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
   const collaboratorPresence = activeUsers.filter((activeUser: { id?: string }) => activeUser.id !== user.id)
   const hasDocumentAccess = accessState?.hasAccess ?? true
   const canEditDocument = EDITABLE_ROLES.has(accessState?.role ?? '')
+  const canComment = hasDocumentAccess && COMMENTABLE_ROLES.has(accessState?.role ?? '')
+  const canModerateComments = hasDocumentAccess && COMMENT_MODERATE_ROLES.has(accessState?.role ?? '')
   const ownerName = accessState?.owner?.full_name || accessState?.owner?.email || 'the document owner'
 
   const loadAccessState = useCallback(async () => {
@@ -398,14 +416,41 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     }
   }, [documentId, hasDocumentAccess])
 
+  const loadComments = useCallback(async () => {
+    if (!hasDocumentAccess) {
+      setComments([])
+      setCommentsError('')
+      return
+    }
+
+    try {
+      setCommentsLoading(true)
+      setCommentsError('')
+      const response = await fetch(`/api/documents/${documentId}/comments`, { cache: 'no-store' })
+      const data = await readResponsePayload<CommentsResponse>(response)
+      if (!response.ok) {
+        setComments([])
+        setCommentsError(getResponseErrorMessage(data, 'Unable to load comments.'))
+        return
+      }
+      const nextComments = Array.isArray(data?.comments) ? data.comments : []
+      setComments(nextComments)
+    } catch {
+      setComments([])
+      setCommentsError('Unable to load comments.')
+    } finally {
+      setCommentsLoading(false)
+    }
+  }, [documentId, hasDocumentAccess])
+
   useEffect(() => {
     void loadAccessState()
   }, [loadAccessState])
 
   useEffect(() => {
     if (!accessState) return
-    void loadMembers()
-  }, [accessState, loadMembers])
+    void Promise.all([loadMembers(), loadComments()])
+  }, [accessState, loadMembers, loadComments])
 
   useEffect(() => {
     if (!editor) return
@@ -479,12 +524,19 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
           void loadAccessState()
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'document_comments', filter: `document_id=eq.${documentId}` },
+        () => {
+          void loadComments()
+        }
+      )
       .subscribe()
 
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [documentId, user.id, loadAccessState, loadMembers])
+  }, [documentId, user.id, loadAccessState, loadMembers, loadComments])
 
   useEffect(() => {
     if (!accessState) return
@@ -495,6 +547,14 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     }, 12000)
     return () => clearInterval(timer)
   }, [accessState, loadAccessState])
+
+  useEffect(() => {
+    if (!editingCommentId) return
+    const exists = comments.some((comment) => comment.id === editingCommentId)
+    if (exists) return
+    setEditingCommentId(null)
+    setEditingCommentDraft('')
+  }, [editingCommentId, comments])
 
   // The toolbar invokes many chain variations, so a narrow local type is more cumbersome than helpful here.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -753,6 +813,130 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     }
   }
 
+  const getSelectionPreview = () => {
+    if (!editor || editor.state.selection.empty) return ''
+    return editor.state.doc
+      .textBetween(editor.state.selection.from, editor.state.selection.to, ' ', ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 400)
+  }
+
+  const createComment = async () => {
+    if (!hasDocumentAccess || !canComment) return
+    const content = commentDraft.trim()
+    if (!content) return
+
+    setAddingComment(true)
+    setCommentsError('')
+    try {
+      const response = await fetch(`/api/documents/${documentId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          selection_text: getSelectionPreview(),
+        }),
+      })
+      const data = await readResponsePayload<CommentItem>(response)
+      if (!response.ok) {
+        setCommentsError(getResponseErrorMessage(data, 'Unable to add comment.'))
+        return
+      }
+      if (data) {
+        setComments((current) => [data, ...current.filter((comment) => comment.id !== data.id)])
+      }
+      setCommentDraft('')
+    } catch {
+      setCommentsError('Unable to add comment.')
+    } finally {
+      setAddingComment(false)
+    }
+  }
+
+  const updateComment = async (commentId: string, payload: Record<string, string>) => {
+    setCommentActionId(commentId)
+    setCommentsError('')
+    try {
+      const response = await fetch(`/api/documents/${documentId}/comments`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment_id: commentId, ...payload }),
+      })
+      const data = await readResponsePayload<CommentItem>(response)
+      if (!response.ok) {
+        setCommentsError(getResponseErrorMessage(data, 'Unable to update comment.'))
+        return null
+      }
+      if (data) {
+        setComments((current) => current.map((comment) => (comment.id === commentId ? data : comment)))
+      }
+      return data
+    } catch {
+      setCommentsError('Unable to update comment.')
+      return null
+    } finally {
+      setCommentActionId(null)
+    }
+  }
+
+  const toggleCommentStatus = async (comment: CommentItem) => {
+    const nextStatus = comment.status === 'open' ? 'resolved' : 'open'
+    const updated = await updateComment(comment.id, { status: nextStatus })
+    if (!updated) return
+    notify.success(nextStatus === 'resolved' ? 'Comment resolved.' : 'Comment reopened.')
+  }
+
+  const startEditingComment = (comment: CommentItem) => {
+    setEditingCommentId(comment.id)
+    setEditingCommentDraft(comment.content)
+  }
+
+  const cancelEditingComment = () => {
+    setEditingCommentId(null)
+    setEditingCommentDraft('')
+  }
+
+  const saveEditedComment = async () => {
+    if (!editingCommentId) return
+    const content = editingCommentDraft.trim()
+    if (!content) {
+      setCommentsError('Comment content cannot be empty.')
+      return
+    }
+
+    const updated = await updateComment(editingCommentId, { content })
+    if (!updated) return
+    setEditingCommentId(null)
+    setEditingCommentDraft('')
+    notify.success('Comment updated.')
+  }
+
+  const deleteComment = async (commentId: string) => {
+    setCommentActionId(commentId)
+    setCommentsError('')
+    try {
+      const response = await fetch(`/api/documents/${documentId}/comments?comment_id=${encodeURIComponent(commentId)}`, {
+        method: 'DELETE',
+      })
+      const data = await readResponsePayload(response)
+      if (!response.ok) {
+        setCommentsError(getResponseErrorMessage(data, 'Unable to delete comment.'))
+        return
+      }
+      setComments((current) => current.filter((comment) => comment.id !== commentId))
+      if (editingCommentId === commentId) {
+        setEditingCommentId(null)
+        setEditingCommentDraft('')
+      }
+      notify.success('Comment deleted.')
+    } catch {
+      setCommentsError('Unable to delete comment.')
+    } finally {
+      setCommentActionId(null)
+    }
+  }
+
   const saveBadge = {
     label: saveStatus === 'saving' ? 'Saving' : saveStatus === 'offline' ? 'Offline' : 'Saved',
     icon: saveStatus === 'saving' ? <SafeIcon icon={Loader2} className="h-3.5 w-3.5 animate-spin" /> : <SafeIcon icon={Check} className="h-3.5 w-3.5" />,
@@ -777,7 +961,6 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     description: `Captured ${formatRelativeTime(version.created_at)} from the live collaborative canvas.`,
     author: version.profiles?.full_name || version.profiles?.email || 'Lumina Write',
     time: formatRelativeTime(version.created_at),
-    aiOptimized: /ai/i.test(version.label || ''),
   }))
 
   return (
@@ -999,21 +1182,10 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
 
           <button
             type="button"
-            onClick={() => setShowAIPanel((value) => !value)}
-            className="hidden h-10 items-center gap-2 rounded-full border px-4 text-sm font-semibold transition-colors hover:bg-[#f5ede2] md:flex"
-            style={{ borderColor: warmTheme.border, color: warmTheme.text, background: 'rgba(255,253,249,0.72)' }}
-          >
-            <SafeIcon icon={Bot} className="h-4 w-4" style={{ color: warmTheme.accent }} />
-            Lumina AI
-          </button>
-
-          <button
-            type="button"
             onClick={() => {
               setShowVersionPanel((value) => !value)
               if (!showVersionPanel) {
                 void loadVersions()
-                setShowAIPanel(false)
               }
             }}
             className="flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-semibold transition-colors hover:bg-[#f5ede2]"
@@ -1021,6 +1193,21 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
           >
             <SafeIcon icon={GitBranch} className="h-4 w-4" style={{ color: warmTheme.accent }} />
             <span className="hidden sm:inline">History</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowCommentsPanel((value) => !value)}
+            className="flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-semibold transition-colors hover:bg-[#f5ede2]"
+            style={{
+              borderColor: warmTheme.border,
+              color: warmTheme.text,
+              background: showCommentsPanel ? 'rgba(242,229,211,0.8)' : 'rgba(255,253,249,0.72)',
+            }}
+          >
+            <SafeIcon icon={MessageSquareQuote} className="h-4 w-4" style={{ color: warmTheme.accent }} />
+            <span className="hidden sm:inline">Comments</span>
+            <span className="rounded-full bg-[#f2e5d3] px-2 py-0.5 text-[11px] font-semibold text-[#9a5b2b]">{comments.length}</span>
           </button>
 
           {accessState?.isOwner && ShareModal ? (
@@ -1235,8 +1422,32 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
           </div>
         </div>
 
-        {showAIPanel && AIAssistantPanel ? <AIAssistantPanel documentTitle={docTitle} onClose={() => setShowAIPanel(false)} /> : null}
-        {showVersionPanel && !showAIPanel && VersionHistoryPanel ? <VersionHistoryPanel versions={versionHistoryItems} loading={historyLoading} error={historyError} saving={snapshotSaving} onClose={() => setShowVersionPanel(false)} onRestore={(versionId) => void restoreVersion(versionId)} onSaveSnapshot={() => void saveVersionSnapshot('Manual snapshot')} /> : null}
+        {showCommentsPanel && CommentsPanel ? (
+          <CommentsPanel
+            comments={comments}
+            loading={commentsLoading}
+            error={commentsError}
+            onClose={() => setShowCommentsPanel(false)}
+            currentUserId={user.id}
+            canComment={canComment}
+            canModerate={canModerateComments}
+            draft={commentDraft}
+            onDraftChange={setCommentDraft}
+            onAddComment={() => void createComment()}
+            adding={addingComment}
+            actionCommentId={commentActionId}
+            editingCommentId={editingCommentId}
+            editDraft={editingCommentDraft}
+            onEditDraftChange={setEditingCommentDraft}
+            onStartEdit={startEditingComment}
+            onCancelEdit={cancelEditingComment}
+            onSaveEdit={() => void saveEditedComment()}
+            onToggleStatus={(comment) => void toggleCommentStatus(comment)}
+            onDelete={(commentId) => void deleteComment(commentId)}
+          />
+        ) : null}
+
+        {showVersionPanel && VersionHistoryPanel ? <VersionHistoryPanel versions={versionHistoryItems} loading={historyLoading} error={historyError} saving={snapshotSaving} onClose={() => setShowVersionPanel(false)} onRestore={(versionId) => void restoreVersion(versionId)} onSaveSnapshot={() => void saveVersionSnapshot('Manual snapshot')} /> : null}
       </div>
 
       <style>{`

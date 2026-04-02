@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CheckCircle2, FileText, Loader2, Sparkles, Wand2 } from 'lucide-react'
+import { CheckCircle2, FileText, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { LoginButton } from '@/components/LoginButton'
 
@@ -85,13 +85,13 @@ export default function LoginPage() {
           </h1>
           
           <p className="mt-6 max-w-md text-lg leading-relaxed" style={{ color: '#6b5f52' }}>
-            Lumina Write brings together focused drafting, real-time collaboration, and AI support in one polished workspace.
+            Lumina Write brings together focused drafting and real-time collaboration in one polished workspace.
           </p>
 
           <div className="mt-10 flex flex-wrap gap-3">
             {[
-              { icon: <Sparkles className="w-4 h-4 text-[#c57b3f]" />, label: 'AI Co-author' },
-              { icon: <Wand2 className="w-4 h-4 text-[#9a5b2b]" />, label: 'Smart Templates' },
+              { icon: <FileText className="w-4 h-4 text-[#c57b3f]" />, label: 'Focused Writing' },
+              { icon: <CheckCircle2 className="w-4 h-4 text-[#9a5b2b]" />, label: 'Smart Templates' },
               { icon: <CheckCircle2 className="w-4 h-4 text-[#2f6b4f]" />, label: 'Real-time Sync' }
             ].map((feature, i) => (
               <div key={i} className="flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium" style={{ background: 'rgba(255,255,255,0.76)', borderColor: '#e8decf' }}>
@@ -140,7 +140,7 @@ export default function LoginPage() {
           <div className="mb-6 text-center">
             <h2 className="text-2xl font-semibold tracking-tight">{isLogin ? 'Welcome back' : 'Create an account'}</h2>
             <p className="mt-2 text-sm" style={{ color: '#6b5f52' }}>
-              {isLogin ? 'Enter your details to access your workspace.' : 'Join to start creating intelligent documents.'}
+              {isLogin ? 'Enter your details to access your workspace.' : 'Join to start creating collaborative documents.'}
             </p>
           </div>
 
