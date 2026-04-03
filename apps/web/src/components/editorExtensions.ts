@@ -1,14 +1,8 @@
-import { Extension, Mark, Node, mergeAttributes } from '@tiptap/core'
-import TextStyle from '@tiptap/extension-text-style'
+import { Mark, Node, mergeAttributes } from '@tiptap/core'
+import { TextStyle, Color, FontFamily } from '@tiptap/extension-text-style'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
-    richTextStyle: {
-      setTextColor: (color: string) => ReturnType
-      unsetTextColor: () => ReturnType
-      setFontFamily: (fontFamily: string) => ReturnType
-      unsetFontFamily: () => ReturnType
-    }
     underlineMark: {
       setUnderline: () => ReturnType
       toggleUnderline: () => ReturnType
@@ -23,49 +17,6 @@ declare module '@tiptap/core' {
     }
   }
 }
-
-const RichTextStyle = Extension.create({
-  name: 'richTextStyle',
-  addGlobalAttributes() {
-    return [
-      {
-        types: ['textStyle'],
-        attributes: {
-          color: {
-            default: null,
-            parseHTML: (element) => (element as HTMLElement).style.color || null,
-            renderHTML: (attributes) => (attributes.color ? { style: `color: ${attributes.color}` } : {}),
-          },
-          fontFamily: {
-            default: null,
-            parseHTML: (element) => (element as HTMLElement).style.fontFamily || null,
-            renderHTML: (attributes) => (attributes.fontFamily ? { style: `font-family: ${attributes.fontFamily}` } : {}),
-          },
-        },
-      },
-    ]
-  },
-  addCommands() {
-    return {
-      setTextColor:
-        (color) =>
-        ({ chain }) =>
-          chain().setMark('textStyle', { color }).run(),
-      unsetTextColor:
-        () =>
-        ({ chain }) =>
-          chain().setMark('textStyle', { color: null }).removeEmptyTextStyle().run(),
-      setFontFamily:
-        (fontFamily) =>
-        ({ chain }) =>
-          chain().setMark('textStyle', { fontFamily }).run(),
-      unsetFontFamily:
-        () =>
-        ({ chain }) =>
-          chain().setMark('textStyle', { fontFamily: null }).removeEmptyTextStyle().run(),
-    }
-  },
-})
 
 const UnderlineMark = Mark.create({
   name: 'underline',
@@ -154,4 +105,4 @@ const ImageBlock = Node.create({
   },
 })
 
-export const editorExtensions = [TextStyle, RichTextStyle, UnderlineMark, LinkMark, ImageBlock]
+export const editorExtensions = [TextStyle, Color, FontFamily, UnderlineMark, LinkMark, ImageBlock]
