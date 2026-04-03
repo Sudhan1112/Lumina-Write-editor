@@ -40,7 +40,6 @@ import {
   Strikethrough,
   Type,
   Underline as UnderlineIcon,
-  WifiOff,
   X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -341,10 +340,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
 
   const loadAccessState = useCallback(async () => {
     try {
-      // Only show full loading overlay on the very first access check, not on background re-polls
-      if (previousAccessGranted.current === null) {
-        setAccessLoading(true)
-      }
+      setAccessLoading(true)
       const response = await fetch(`/api/documents/${documentId}/access`, { cache: 'no-store' })
       const data = await readResponsePayload<AccessState>(response)
 
@@ -551,16 +547,6 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     }, 12000)
     return () => clearInterval(timer)
   }, [accessState, loadAccessState])
-
-  // Polling fallback for comments — ensures real-time sync even if the Supabase
-  // postgres_changes subscription misses an event during channel reconnection.
-  useEffect(() => {
-    if (!hasDocumentAccess) return
-    const timer = setInterval(() => {
-      void loadComments()
-    }, 8000)
-    return () => clearInterval(timer)
-  }, [hasDocumentAccess, loadComments])
 
   useEffect(() => {
     if (!editingCommentId) return
@@ -951,36 +937,13 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     }
   }
 
-  const saveBadge = (() => {
-    if (accessLoading && !accessState) {
-      return {
-        label: 'Connecting',
-        icon: <SafeIcon icon={Loader2} className="h-3.5 w-3.5 animate-spin" />,
-        color: warmTheme.accent,
-        background: 'rgba(199,137,77,0.12)',
-        borderColor: 'rgba(199,137,77,0.24)',
-        tooltip: 'Connecting to document…',
-      }
-    }
-    if (statusError || (syncRejectMessage && !accessState?.hasAccess)) {
-      return {
-        label: 'Connection issue',
-        icon: <SafeIcon icon={WifiOff} className="h-3.5 w-3.5" />,
-        color: warmTheme.error,
-        background: 'rgba(163,58,43,0.1)',
-        borderColor: 'rgba(163,58,43,0.16)',
-        tooltip: statusError || syncRejectMessage || '',
-      }
-    }
-    return {
-      label: saveStatus === 'saving' ? 'Saving' : saveStatus === 'offline' ? 'Offline' : 'Saved',
-      icon: saveStatus === 'saving' ? <SafeIcon icon={Loader2} className="h-3.5 w-3.5 animate-spin" /> : <SafeIcon icon={Check} className="h-3.5 w-3.5" />,
-      color: saveStatus === 'offline' ? warmTheme.error : saveStatus === 'saving' ? warmTheme.accent : warmTheme.success,
-      background: saveStatus === 'offline' ? 'rgba(163,58,43,0.1)' : saveStatus === 'saving' ? 'rgba(199,137,77,0.12)' : 'rgba(47,107,79,0.1)',
-      borderColor: saveStatus === 'offline' ? 'rgba(163,58,43,0.16)' : saveStatus === 'saving' ? 'rgba(199,137,77,0.24)' : 'rgba(47,107,79,0.16)',
-      tooltip: null,
-    }
-  })()
+  const saveBadge = {
+    label: saveStatus === 'saving' ? 'Saving' : saveStatus === 'offline' ? 'Offline' : 'Saved',
+    icon: saveStatus === 'saving' ? <SafeIcon icon={Loader2} className="h-3.5 w-3.5 animate-spin" /> : <SafeIcon icon={Check} className="h-3.5 w-3.5" />,
+    color: saveStatus === 'offline' ? warmTheme.error : saveStatus === 'saving' ? warmTheme.accent : warmTheme.success,
+    background: saveStatus === 'offline' ? 'rgba(163,58,43,0.1)' : saveStatus === 'saving' ? 'rgba(199,137,77,0.12)' : 'rgba(47,107,79,0.1)',
+    borderColor: saveStatus === 'offline' ? 'rgba(163,58,43,0.16)' : saveStatus === 'saving' ? 'rgba(199,137,77,0.24)' : 'rgba(47,107,79,0.16)',
+  }
 
   const initials =
     user.user_metadata?.full_name
@@ -1060,11 +1023,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <div
-            className="hidden items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold md:flex"
-            style={{ background: saveBadge.background, color: saveBadge.color, borderColor: saveBadge.borderColor }}
-            title={saveBadge.tooltip ?? undefined}
-          >
+          <div className="hidden items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold md:flex" style={{ background: saveBadge.background, color: saveBadge.color, borderColor: saveBadge.borderColor }}>
             {saveBadge.icon}
             <span>{saveBadge.label}</span>
           </div>
@@ -1310,21 +1269,39 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
         </div>
       </div>
 
+      {syncRejectMessage && !accessState?.hasAccess && (
+        <div className="relative z-20 px-3 pt-3 sm:px-4">
+          <div className="mx-auto max-w-[1600px] rounded-[20px] border px-4 py-3 text-sm" style={{ background: 'rgba(163,58,43,0.08)', borderColor: 'rgba(163,58,43,0.18)', color: warmTheme.error }}>
+            {syncRejectMessage}
+          </div>
+        </div>
+      )}
+
+      {statusError && (
+        <div className="relative z-20 px-3 pt-3 sm:px-4">
+          <div className="mx-auto max-w-[1600px] rounded-[20px] border px-4 py-3 text-sm" style={{ background: 'rgba(163,58,43,0.08)', borderColor: 'rgba(163,58,43,0.18)', color: warmTheme.error }}>
+            {statusError}
+          </div>
+        </div>
+      )}
 
       <div className="relative z-10 flex min-h-0 flex-1 gap-3 overflow-hidden px-3 py-3 sm:px-4 sm:py-4">
         {showOutline && (
           <aside className="hidden w-[294px] flex-shrink-0 lg:block">
             <div className="flex h-full flex-col rounded-[30px] border p-4 shadow-[0_24px_48px_rgba(32,26,19,0.06)]" style={{ background: warmTheme.panel, borderColor: warmTheme.border, backdropFilter: 'blur(18px)' }}>
-              <div className="mb-4">
-                <div className="flex items-center justify-between gap-2">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#998b7d]">Document map</p>
-                  <div className="flex items-center gap-1.5 rounded-full px-2.5 py-1" style={{ background: warmTheme.accentSoft }}>
-                    <SafeIcon icon={Clock3} className="h-3 w-3 shrink-0" style={{ color: warmTheme.accent }} />
-                    <span className="text-[11px] font-semibold tabular-nums" style={{ color: warmTheme.accent }}>{readingTime} min read</span>
+                  <h2 className="mt-2 text-lg font-semibold text-[#201a13]">Navigate your draft</h2>
+                  <p className="mt-1 text-sm text-[#6f6254]">Jump between sections and keep your structure in view.</p>
+                </div>
+                <div className="flex items-center gap-2 rounded-[20px] border px-3 py-2 shadow-[0_12px_24px_rgba(154,91,43,0.08)]" style={{ background: 'linear-gradient(180deg,#fffaf3_0%,#f7ead7_100%)', borderColor: warmTheme.border }}>
+                  <SafeIcon icon={Clock3} className="h-3.5 w-3.5" style={{ color: warmTheme.accent }} />
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#998b7d]">Read time</p>
+                    <p className="text-sm font-semibold text-[#201a13]">{readingTime} min</p>
                   </div>
                 </div>
-                <h2 className="mt-2 text-lg font-semibold text-[#201a13]">Navigate your draft</h2>
-                <p className="mt-1 text-sm text-[#6f6254]">Jump between sections and keep your structure in view.</p>
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1365,7 +1342,14 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
 
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div className="min-h-0 flex-1 overflow-y-auto rounded-[36px] border shadow-[0_30px_60px_rgba(32,26,19,0.07)]" style={{ background: 'rgba(247,239,228,0.76)', borderColor: warmTheme.border }}>
-            {editor && hasDocumentAccess ? (
+            {accessLoading ? (
+              <div className="flex min-h-full items-center justify-center px-4 py-12">
+                <div className="flex items-center gap-3 rounded-full border px-4 py-3 text-sm text-[#6f6254]" style={{ borderColor: warmTheme.border, background: '#fffdfa' }}>
+                  <SafeIcon icon={Loader2} className="h-4 w-4 animate-spin" />
+                  Checking document access...
+                </div>
+              </div>
+            ) : editor && hasDocumentAccess ? (
               <>
                 <div className="mx-auto w-full max-w-[980px] px-3 py-4 sm:px-6 sm:py-5">
                   <div className="rounded-[34px] border p-3 shadow-[0_20px_44px_rgba(32,26,19,0.06)] sm:p-4" style={{ background: warmTheme.paper, borderColor: warmTheme.paperEdge }}>
@@ -1385,7 +1369,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
                   </div>
                 </div>
               </>
-            ) : !accessLoading && !hasDocumentAccess ? (
+            ) : (
               <div className="flex min-h-full items-center justify-center px-4 py-8 sm:px-6">
                 <div className="w-full max-w-2xl rounded-[34px] border p-6 shadow-[0_24px_60px_rgba(32,26,19,0.08)] sm:p-8" style={{ background: warmTheme.panelStrong, borderColor: warmTheme.border }}>
                   <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1432,14 +1416,6 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
                       </p>
                     </div>
                   )}
-                </div>
-              </div>
-            ) : (
-              <div className="flex min-h-full items-center justify-center px-4 py-12">
-                <div className="space-y-3 w-full max-w-[640px] px-6">
-                  <div className="h-3 rounded-full animate-pulse" style={{ background: warmTheme.border, width: '60%' }} />
-                  <div className="h-3 rounded-full animate-pulse" style={{ background: warmTheme.border, width: '85%' }} />
-                  <div className="h-3 rounded-full animate-pulse" style={{ background: warmTheme.border, width: '72%' }} />
                 </div>
               </div>
             )}
