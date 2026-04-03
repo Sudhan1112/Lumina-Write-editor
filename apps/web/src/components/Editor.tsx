@@ -258,6 +258,8 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
   const templateApplied = useRef(false)
   const approvalHandled = useRef(false)
   const previousAccessGranted = useRef<boolean | null>(null)
+  const isConnectedRef = useRef(false)
+  const initialLoadDoneRef = useRef(false)
 
   useEffect(() => {
     createClient()
@@ -285,21 +287,33 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
 
   const { ydoc, awareness, activeUsers, isConnected, syncRejectMessage, sessionColor } = useCollabEditor(documentId, userForCollab)
 
+  useEffect(() => {
+    isConnectedRef.current = isConnected
+  }, [isConnected])
+
+  // Must be referentially stable across ordinary re-renders (toolbar color/font, etc.).
+  // If this array is recreated every render, TipTap calls setOptions() with new
+  // extension instances, which can reinitialize the collaborative doc and wipe text.
+  const tiptapExtensions = useMemo(
+    () => [
+      StarterKit.configure({ history: false }),
+      ...editorExtensions,
+      Collaboration.configure({ document: ydoc }),
+      CollaborationCursor.configure({
+        provider: { awareness } as never,
+        user: {
+          name: userForCollab.user_metadata?.full_name || userForCollab.email?.split('@')[0] || 'Writer',
+          color: sessionColor || userForCollab.user_metadata?.color || '#9a5b2b',
+        },
+      }),
+    ],
+    [ydoc, awareness, sessionColor, userForCollab]
+  )
+
   const editor = useEditor(
     {
       immediatelyRender: false,
-      extensions: [
-        StarterKit.configure({ history: false }),
-        ...editorExtensions,
-        Collaboration.configure({ document: ydoc }),
-        CollaborationCursor.configure({
-          provider: { awareness } as never,
-          user: {
-            name: userForCollab.user_metadata?.full_name || userForCollab.email?.split('@')[0] || 'Writer',
-            color: sessionColor || userForCollab.user_metadata?.color || '#9a5b2b',
-          },
-        }),
-      ],
+      extensions: tiptapExtensions,
       editorProps: {
         attributes: {
           class:
@@ -318,14 +332,16 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
         setHeadings(nextHeadings)
         setSaveStatus('saving')
         if (saveTimer.current) clearTimeout(saveTimer.current)
-        saveTimer.current = setTimeout(() => setSaveStatus(isConnected ? 'saved' : 'offline'), 1200)
+        saveTimer.current = setTimeout(() => setSaveStatus(isConnectedRef.current ? 'saved' : 'offline'), 1200)
         if (snapshotTimer.current) clearTimeout(snapshotTimer.current)
         snapshotTimer.current = setTimeout(() => {
           void saveVersionSnapshot('Auto-save')
         }, 25000)
       },
     },
-    [ydoc, awareness, userForCollab.email, userForCollab.user_metadata?.full_name, userForCollab.user_metadata?.color, sessionColor, isConnected]
+    // Only ydoc/awareness: recreating the editor destroys the ProseMirror view and can corrupt Yjs sync.
+    // Cursor name/color and profile fields belong in `tiptapExtensions` via useMemo, not here.
+    [ydoc, awareness]
   )
 
   const templateLabel = TEMPLATE_LABELS[template] || 'General document'
@@ -420,7 +436,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     }
   }, [documentId, hasDocumentAccess])
 
-  const loadComments = useCallback(async () => {
+  const loadComments = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!hasDocumentAccess) {
       setComments([])
       setCommentsError('')
@@ -428,22 +444,22 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     }
 
     try {
-      setCommentsLoading(true)
+      if (!silent) setCommentsLoading(true)
       setCommentsError('')
       const response = await fetch(`/api/documents/${documentId}/comments`, { cache: 'no-store' })
       const data = await readResponsePayload<CommentsResponse>(response)
       if (!response.ok) {
-        setComments([])
+        if (!silent) setComments([])
         setCommentsError(getResponseErrorMessage(data, 'Unable to load comments.'))
         return
       }
       const nextComments = Array.isArray(data?.comments) ? data.comments : []
       setComments(nextComments)
     } catch {
-      setComments([])
+      if (!silent) setComments([])
       setCommentsError('Unable to load comments.')
     } finally {
-      setCommentsLoading(false)
+      if (!silent) setCommentsLoading(false)
     }
   }, [documentId, hasDocumentAccess])
 
@@ -453,6 +469,8 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
 
   useEffect(() => {
     if (!accessState) return
+    if (initialLoadDoneRef.current) return
+    initialLoadDoneRef.current = true
     void Promise.all([loadMembers(), loadComments()])
   }, [accessState, loadMembers, loadComments])
 
@@ -472,11 +490,9 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
 
     syncToolbarState()
     editor.on('selectionUpdate', syncToolbarState)
-    editor.on('transaction', syncToolbarState)
 
     return () => {
       editor.off('selectionUpdate', syncToolbarState)
-      editor.off('transaction', syncToolbarState)
     }
   }, [editor])
 
@@ -532,7 +548,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'document_comments', filter: `document_id=eq.${documentId}` },
         () => {
-          void loadComments()
+          void loadComments({ silent: true })
         }
       )
       .subscribe()
@@ -552,13 +568,14 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     return () => clearInterval(timer)
   }, [accessState, loadAccessState])
 
-  // Polling fallback for comments — ensures real-time sync even if the Supabase
-  // postgres_changes subscription misses an event during channel reconnection.
+  // Silent polling fallback for comments — catches any events the Supabase
+  // real-time channel misses during reconnection. Uses silent mode so the
+  // panel never shows a loading spinner during background refreshes.
   useEffect(() => {
     if (!hasDocumentAccess) return
     const timer = setInterval(() => {
-      void loadComments()
-    }, 8000)
+      void loadComments({ silent: true })
+    }, 30000)
     return () => clearInterval(timer)
   }, [hasDocumentAccess, loadComments])
 
@@ -1277,7 +1294,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
           <ToolBtn label={showOutline ? 'Hide outline' : 'Show outline'} icon={showOutline ? <SafeIcon icon={PanelLeftClose} className="h-4 w-4" /> : <SafeIcon icon={PanelRightClose} className="h-4 w-4" />} active={showOutline} onClick={() => setShowOutline((value) => !value)} />
           <ToolbarDivider />
           <ToolSelect label="Font" icon={<SafeIcon icon={Type} className="h-4 w-4" />} value={toolbarFont} onChange={(value) => { setToolbarFont(value); if (!editor) return; if (value === FONT_OPTIONS[0].value) { editor.chain().focus().unsetFontFamily().run(); return } editor.chain().focus().setFontFamily(value).run() }} options={FONT_OPTIONS} />
-          <ToolSelect label="Color" icon={<span className="h-3 w-3 rounded-full border" style={{ background: toolbarColor, borderColor: 'rgba(154,91,43,0.18)' }} />} value={toolbarColor} onChange={(value) => { setToolbarColor(value); editor?.chain().focus().setTextColor(value).run() }} options={COLOR_OPTIONS} />
+          <ToolSelect label="Color" icon={<span className="h-3 w-3 rounded-full border" style={{ background: toolbarColor, borderColor: 'rgba(154,91,43,0.18)' }} />} value={toolbarColor} onChange={(value) => { setToolbarColor(value); editor?.chain().focus().setColor(value).run() }} options={COLOR_OPTIONS} />
           <ToolbarDivider />
           <ToolBtn label="Heading 1" icon={<SafeIcon icon={Heading1} className="h-4 w-4" />} active={editor?.isActive('heading', { level: 1 })} onClick={() => runCommand((chain) => chain.toggleHeading({ level: 1 }))} />
           <ToolBtn label="Heading 2" icon={<SafeIcon icon={Heading2} className="h-4 w-4" />} active={editor?.isActive('heading', { level: 2 })} onClick={() => runCommand((chain) => chain.toggleHeading({ level: 2 }))} />
@@ -1287,7 +1304,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
           <ToolBtn label="Italic" icon={<SafeIcon icon={Italic} className="h-4 w-4" />} active={editor?.isActive('italic')} onClick={() => runCommand((chain) => chain.toggleItalic())} />
           <ToolBtn label="Underline" icon={<SafeIcon icon={UnderlineIcon} className="h-4 w-4" />} active={editor?.isActive('underline')} onClick={() => runCommand((chain) => chain.toggleUnderline())} />
           <ToolBtn label="Strike" icon={<SafeIcon icon={Strikethrough} className="h-4 w-4" />} active={editor?.isActive('strike')} onClick={() => runCommand((chain) => chain.toggleStrike())} />
-          <ToolBtn label="Clear formatting" icon={<SafeIcon icon={RemoveFormatting} className="h-4 w-4" />} onClick={() => runCommand((chain) => chain.unsetAllMarks().unsetTextColor().unsetFontFamily())} />
+          <ToolBtn label="Clear formatting" icon={<SafeIcon icon={RemoveFormatting} className="h-4 w-4" />} onClick={() => runCommand((chain) => chain.unsetAllMarks().unsetColor().unsetFontFamily())} />
           <ToolbarDivider />
           <ToolBtn label="Insert link" icon={<SafeIcon icon={Link2} className="h-4 w-4" />} active={editor?.isActive('link')} onClick={setLink} />
           <ToolBtn label="Remove link" text="Unlink" onClick={clearLink} />
@@ -1370,7 +1387,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
                 <div className="mx-auto w-full max-w-[980px] px-3 py-4 sm:px-6 sm:py-5">
                   <div className="rounded-[34px] border p-3 shadow-[0_20px_44px_rgba(32,26,19,0.06)] sm:p-4" style={{ background: warmTheme.paper, borderColor: warmTheme.paperEdge }}>
                     <div className="rounded-[30px] border bg-[#fffdfa] px-2 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] sm:px-4 sm:py-4" style={{ borderColor: warmTheme.paperEdge }}>
-                      <div className="transition-transform duration-200" style={{ transform: `scale(${pageScale})`, transformOrigin: 'top center' }}>
+                      <div style={{ zoom: pageScale }}>
                         <div className="mx-auto max-w-3xl">
                           {EditorContent ? (
                             <EditorContent editor={editor} />
@@ -1551,6 +1568,7 @@ function ToolSelect({
     <div className="relative" ref={ref}>
       <button
         type="button"
+        onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen(!open)}
         aria-label={label}
         className="flex h-9 items-center gap-2 rounded-full border pl-3 pr-2 text-xs font-semibold hover:bg-[#f5ede2] transition-colors"
@@ -1569,6 +1587,7 @@ function ToolSelect({
               type="button"
               className="flex w-full items-center px-4 py-2 text-left text-xs font-semibold transition-colors hover:bg-[#f6f1e8]"
               style={{ color: value === option.value ? warmTheme.accent : warmTheme.text }}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 onChange(option.value)
                 setOpen(false)
