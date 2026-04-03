@@ -40,6 +40,7 @@ import {
   Strikethrough,
   Type,
   Underline as UnderlineIcon,
+  WifiOff,
   X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -950,13 +951,36 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     }
   }
 
-  const saveBadge = {
-    label: saveStatus === 'saving' ? 'Saving' : saveStatus === 'offline' ? 'Offline' : 'Saved',
-    icon: saveStatus === 'saving' ? <SafeIcon icon={Loader2} className="h-3.5 w-3.5 animate-spin" /> : <SafeIcon icon={Check} className="h-3.5 w-3.5" />,
-    color: saveStatus === 'offline' ? warmTheme.error : saveStatus === 'saving' ? warmTheme.accent : warmTheme.success,
-    background: saveStatus === 'offline' ? 'rgba(163,58,43,0.1)' : saveStatus === 'saving' ? 'rgba(199,137,77,0.12)' : 'rgba(47,107,79,0.1)',
-    borderColor: saveStatus === 'offline' ? 'rgba(163,58,43,0.16)' : saveStatus === 'saving' ? 'rgba(199,137,77,0.24)' : 'rgba(47,107,79,0.16)',
-  }
+  const saveBadge = (() => {
+    if (accessLoading && !accessState) {
+      return {
+        label: 'Connecting',
+        icon: <SafeIcon icon={Loader2} className="h-3.5 w-3.5 animate-spin" />,
+        color: warmTheme.accent,
+        background: 'rgba(199,137,77,0.12)',
+        borderColor: 'rgba(199,137,77,0.24)',
+        tooltip: 'Connecting to document…',
+      }
+    }
+    if (statusError || (syncRejectMessage && !accessState?.hasAccess)) {
+      return {
+        label: 'Connection issue',
+        icon: <SafeIcon icon={WifiOff} className="h-3.5 w-3.5" />,
+        color: warmTheme.error,
+        background: 'rgba(163,58,43,0.1)',
+        borderColor: 'rgba(163,58,43,0.16)',
+        tooltip: statusError || syncRejectMessage || '',
+      }
+    }
+    return {
+      label: saveStatus === 'saving' ? 'Saving' : saveStatus === 'offline' ? 'Offline' : 'Saved',
+      icon: saveStatus === 'saving' ? <SafeIcon icon={Loader2} className="h-3.5 w-3.5 animate-spin" /> : <SafeIcon icon={Check} className="h-3.5 w-3.5" />,
+      color: saveStatus === 'offline' ? warmTheme.error : saveStatus === 'saving' ? warmTheme.accent : warmTheme.success,
+      background: saveStatus === 'offline' ? 'rgba(163,58,43,0.1)' : saveStatus === 'saving' ? 'rgba(199,137,77,0.12)' : 'rgba(47,107,79,0.1)',
+      borderColor: saveStatus === 'offline' ? 'rgba(163,58,43,0.16)' : saveStatus === 'saving' ? 'rgba(199,137,77,0.24)' : 'rgba(47,107,79,0.16)',
+      tooltip: null,
+    }
+  })()
 
   const initials =
     user.user_metadata?.full_name
@@ -1036,7 +1060,11 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="hidden items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold md:flex" style={{ background: saveBadge.background, color: saveBadge.color, borderColor: saveBadge.borderColor }}>
+          <div
+            className="hidden items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold md:flex"
+            style={{ background: saveBadge.background, color: saveBadge.color, borderColor: saveBadge.borderColor }}
+            title={saveBadge.tooltip ?? undefined}
+          >
             {saveBadge.icon}
             <span>{saveBadge.label}</span>
           </div>
