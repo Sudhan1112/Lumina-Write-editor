@@ -340,7 +340,10 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
 
   const loadAccessState = useCallback(async () => {
     try {
-      setAccessLoading(true)
+      // Only show full loading overlay on the very first access check, not on background re-polls
+      if (previousAccessGranted.current === null) {
+        setAccessLoading(true)
+      }
       const response = await fetch(`/api/documents/${documentId}/access`, { cache: 'no-store' })
       const data = await readResponsePayload<AccessState>(response)
 
