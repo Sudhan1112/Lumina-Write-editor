@@ -551,6 +551,16 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     return () => clearInterval(timer)
   }, [accessState, loadAccessState])
 
+  // Polling fallback for comments — ensures real-time sync even if the Supabase
+  // postgres_changes subscription misses an event during channel reconnection.
+  useEffect(() => {
+    if (!hasDocumentAccess) return
+    const timer = setInterval(() => {
+      void loadComments()
+    }, 8000)
+    return () => clearInterval(timer)
+  }, [hasDocumentAccess, loadComments])
+
   useEffect(() => {
     if (!editingCommentId) return
     const exists = comments.some((comment) => comment.id === editingCommentId)
