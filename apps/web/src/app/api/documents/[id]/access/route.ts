@@ -114,7 +114,17 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
     let pendingRequests: AccessRequestResponse[] = []
 
-    if (isOwner) {
+    const normalizedMembership = membership
+      ? {
+          ...(membership as MemberRow),
+          profiles: firstProfile((membership as MemberRow).profiles),
+        }
+      : null
+
+    const isAdminMember = normalizedMembership?.role === 'admin'
+    const canModerateAccessRequests = isOwner || isAdminMember
+
+    if (canModerateAccessRequests) {
       const { data: ownerRequests, error: ownerRequestsError } = await admin
         .from('document_access_requests')
         .select('id, document_id, user_id, requested_role, status, created_at, profiles(id, email, full_name, avatar_url)')
@@ -151,13 +161,6 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         .filter((request): request is AccessRequestResponse => request !== null)
     }
 
-    const normalizedMembership = membership
-      ? {
-          ...(membership as MemberRow),
-          profiles: firstProfile((membership as MemberRow).profiles),
-        }
-      : null
-
     return NextResponse.json({
       document: {
         id: document.id,
@@ -169,6 +172,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       role: isOwner ? 'owner' : normalizedMembership?.role ?? null,
       latestRequest: normalizeAccessRequest((ownRequest as AccessRequestRow | null) ?? null, normalizedMembership?.role ?? null),
       pendingRequests,
+      canModerateAccessRequests,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Server configuration error'
@@ -309,7 +313,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       return NextResponse.json({ error: 'Document not found' }, { status: 404 })
     }
 
-    if (document.owner_id !== user.id) {
+    const { data: actorMembership, error: actorMembershipError } = await admin
+      .from('document_members')
+      .select('role')
+      .eq('document_id', params.id)
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (actorMembershipError) {
+      return NextResponse.json({ error: actorMembershipError.message }, { status: 500 })
+    }
+
+    const isAdminActor = actorMembership?.role === 'admin'
+    if (document.owner_id !== user.id && !isAdminActor) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
