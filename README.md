@@ -40,26 +40,22 @@ Lumina Write is a Google Docs-style collaborative editor where multiple users ca
 ---
 
 ## 2. High-Level Architecture
-
 ```mermaid
 graph TB
-    subgraph Frontend (Vercel)
+    subgraph Frontend_Vercel["Frontend (Vercel)"]
         A[Next.js 14 App Router]
         B[TipTap editor / ProseMirror]
         C[Yjs Doc in browser]
     end
-
-    subgraph Sync Server (Render)
+    subgraph Sync_Server_Render["Sync Server (Render)"]
         D[Express + Socket.IO]
         E[In-memory Yjs Doc manager]
     end
-
     subgraph Supabase
         F[Auth]
         G[PostgreSQL]
         H[RLS + SECURITY DEFINER helpers]
     end
-
     A -->|Route Handlers| G
     A -->|OAuth callback| F
     B --> C
