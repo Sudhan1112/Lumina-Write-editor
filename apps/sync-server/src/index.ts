@@ -12,7 +12,7 @@ import { getOrCreateDoc, schedulePersist } from './yjsManager'
 
 /** Always allowed (production + local dev). Merged with CLIENT_URL from env. */
 const AUTHORIZED_ORIGINS = [
-  'https://collaborative-editor-ashen.vercel.app',
+  'https://lumina-write-editor.vercel.app',
   'http://localhost:3000',
   'http://localhost:3001',
 ] as const
@@ -125,30 +125,43 @@ io.on('connection', (socket: Socket) => {
       return
     }
 
-    if (socket.data.documentId && socket.data.documentId !== documentId) {
-      socket.leave(socket.data.documentId)
+    try {
+      if (socket.data.documentId && socket.data.documentId !== documentId) {
+        socket.leave(socket.data.documentId)
+      }
+
+      socket.join(documentId)
+      const doc = await getOrCreateDoc(documentId)
+
+      // Send full doc state
+      const stateBinary = Y.encodeStateAsUpdate(doc)
+      const stateBase64 = Buffer.from(stateBinary).toString('base64')
+      socket.emit('doc:load', stateBase64)
+
+      // Setup awareness room
+      if (!roomAwareness.has(documentId)) {
+        roomAwareness.set(documentId, {})
+      }
+      const awareness = roomAwareness.get(documentId)!
+      socket.emit('awareness:sync', awareness)
+
+      // Notify others
+      socket.to(documentId).emit('presence:joined', { socketId: socket.id, userId: socket.data.user?.id })
+
+      // Store current room to handle disconnects securely
+      socket.data.documentId = documentId
+    } catch (err) {
+      console.error('doc:join error', err)
+      socket.leave(documentId)
+      if (socket.data.documentAccess?.documentId === documentId) {
+        socket.data.documentAccess = undefined
+      }
+      if (socket.data.documentId === documentId) {
+        socket.data.documentId = undefined
+      }
+      socket.emit('doc:rejected', { reason: 'server_error' })
+      return
     }
-
-    socket.join(documentId)
-    const doc = await getOrCreateDoc(documentId)
-    
-    // Send full doc state
-    const stateBinary = Y.encodeStateAsUpdate(doc)
-    const stateBase64 = Buffer.from(stateBinary).toString('base64')
-    socket.emit('doc:load', stateBase64)
-
-    // Setup awareness room
-    if (!roomAwareness.has(documentId)) {
-      roomAwareness.set(documentId, {})
-    }
-    const awareness = roomAwareness.get(documentId)!
-    socket.emit('awareness:sync', awareness)
-
-    // Notify others
-    socket.to(documentId).emit('presence:joined', { socketId: socket.id, userId: socket.data.user?.id })
-
-    // Store current room to handle disconnects securely
-    socket.data.documentId = documentId
   })
 
   socket.on('doc:update', async (documentId: string, updateBase64: string) => {
@@ -191,6 +204,15 @@ io.on('connection', (socket: Socket) => {
 })
 
 const PORT = process.env.PORT || 4000
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err)
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason)
+})
+
 httpServer.listen(PORT, () => {
   console.log(`Sync server running on port ${PORT}`)
 })

@@ -24,23 +24,49 @@ function firstProfile(profile: MemberRow['profiles']) {
   return profile ?? null
 }
 
-async function assertOwner(documentId: string, actorId: string) {
-  const supabase = createClient()
-  const { data: doc, error: docError } = await supabase
-    .from('documents')
-    .select('owner_id')
-    .eq('id', documentId)
-    .single()
+/** Clearer message when Postgres enum `app_role` was never migrated to include `admin`. */
+function memberWriteErrorResponse(message: string) {
+  if (/invalid input value for enum|app_role/i.test(message)) {
+    return NextResponse.json(
+      {
+        error:
+          'Could not save this role: your Supabase database may be missing the `admin` value on enum `app_role`. Open supabase/patches/ensure_app_role_admin.sql in this project and run it in the Supabase SQL Editor, then try again.',
+      },
+      { status: 500 }
+    )
+  }
+  return NextResponse.json({ error: message }, { status: 500 })
+}
+
+/** Document owner, or a member with the `admin` role, may invite and change roles (never the owner account). */
+async function assertOwnerOrAdmin(documentId: string, actorId: string) {
+  const admin = createAdminClient()
+  const { data: doc, error: docError } = await admin.from('documents').select('owner_id').eq('id', documentId).single()
 
   if (docError || !doc) {
     return { error: NextResponse.json({ error: 'Document not found' }, { status: 404 }) }
   }
 
-  if (doc.owner_id !== actorId) {
-    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+  if (doc.owner_id === actorId) {
+    return { ownerId: doc.owner_id }
   }
 
-  return { ownerId: doc.owner_id }
+  const { data: membership, error: memError } = await admin
+    .from('document_members')
+    .select('role')
+    .eq('document_id', documentId)
+    .eq('user_id', actorId)
+    .maybeSingle()
+
+  if (memError) {
+    return { error: NextResponse.json({ error: memError.message }, { status: 500 }) }
+  }
+
+  if (membership?.role === 'admin') {
+    return { ownerId: doc.owner_id }
+  }
+
+  return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
 }
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
@@ -126,10 +152,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
   }
 
-  const ownerCheck = await assertOwner(params.id, user.id)
-  if (ownerCheck.error) return ownerCheck.error
+  const managerCheck = await assertOwnerOrAdmin(params.id, user.id)
+  if (managerCheck.error) return managerCheck.error
 
-  if (user_id === ownerCheck.ownerId) {
+  if (user_id === managerCheck.ownerId) {
     return NextResponse.json({ error: 'Owner role cannot be changed via share' }, { status: 400 })
   }
 
@@ -139,14 +165,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const { error: ownerMemberError } = await admin.from('document_members').upsert(
       {
         document_id: params.id,
-        user_id: ownerCheck.ownerId,
+        user_id: managerCheck.ownerId,
         role: 'owner',
       },
       { onConflict: 'document_id,user_id' }
     )
 
     if (ownerMemberError) {
-      return NextResponse.json({ error: ownerMemberError.message }, { status: 500 })
+      return memberWriteErrorResponse(ownerMemberError.message)
     }
 
     const { data, error } = await admin
@@ -154,7 +180,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       .upsert({ document_id: params.id, user_id, role }, { onConflict: 'document_id,user_id' })
       .select('id, document_id, user_id, role, profiles(id, email, full_name, avatar_url)')
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return memberWriteErrorResponse(error.message)
 
     const payload = ((data ?? []) as MemberRow[]).map((member) => ({
       ...member,
@@ -189,10 +215,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
   }
 
-  const ownerCheck = await assertOwner(params.id, user.id)
-  if (ownerCheck.error) return ownerCheck.error
+  const managerCheck = await assertOwnerOrAdmin(params.id, user.id)
+  if (managerCheck.error) return managerCheck.error
 
-  if (user_id === ownerCheck.ownerId) {
+  if (user_id === managerCheck.ownerId) {
     return NextResponse.json({ error: 'Owner role cannot be changed' }, { status: 400 })
   }
 
@@ -212,7 +238,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       .select('id, document_id, user_id, role, profiles(id, email, full_name, avatar_url)')
       .single()
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return memberWriteErrorResponse(error.message)
 
     const { error: approveMatchingError } = await admin
       .from('document_access_requests')
@@ -268,10 +294,10 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return NextResponse.json({ error: 'user_id is required' }, { status: 400 })
   }
 
-  const ownerCheck = await assertOwner(params.id, user.id)
-  if (ownerCheck.error) return ownerCheck.error
+  const managerCheck = await assertOwnerOrAdmin(params.id, user.id)
+  if (managerCheck.error) return managerCheck.error
 
-  if (user_id === ownerCheck.ownerId) {
+  if (user_id === managerCheck.ownerId) {
     return NextResponse.json({ error: 'Owner access cannot be revoked' }, { status: 400 })
   }
 

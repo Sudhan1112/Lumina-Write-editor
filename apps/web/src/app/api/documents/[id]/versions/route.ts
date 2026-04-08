@@ -76,7 +76,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       .select('id, document_id, yjs_state, created_by, label, created_at, profiles(id, email, full_name, avatar_url)')
       .eq('document_id', params.id)
       .order('created_at', { ascending: false })
-      .limit(20)
+      .limit(100)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -107,6 +107,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const body = await req.json().catch(() => ({}))
   const yjsState = typeof body?.yjs_state === 'string' ? body.yjs_state : ''
   const label = typeof body?.label === 'string' && body.label.trim() ? body.label.trim() : 'Auto-save'
+  // Manual snapshots should always create a new row so "Save snapshot now" never feels broken
+  // when the document matches the latest auto-save (same binary Yjs state).
+  const dedupeSnapshots = label !== 'Manual snapshot'
 
   if (!yjsState) {
     return NextResponse.json({ error: 'yjs_state is required' }, { status: 400 })
@@ -125,7 +128,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: latestError.message }, { status: 500 })
     }
 
-    if (latestVersion && latestVersion.yjs_state === yjsState) {
+    if (dedupeSnapshots && latestVersion && latestVersion.yjs_state === yjsState) {
       return NextResponse.json({ id: latestVersion.id, skipped: true })
     }
 

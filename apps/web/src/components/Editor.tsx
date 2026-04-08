@@ -7,6 +7,7 @@ import CollaborationCursor from '@tiptap/extension-collaboration-cursor'
 import { TextSelection } from '@tiptap/pm/state'
 import type { User } from '@supabase/supabase-js'
 import * as Y from 'yjs'
+import { yDocToProsemirrorJSON } from '@tiptap/y-tiptap'
 import { type ChangeEvent, type CSSProperties, type ElementType, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { notify } from '@/lib/notify'
 import Link from 'next/link'
@@ -81,6 +82,8 @@ type AccessState = {
   role: string | null
   latestRequest: AccessRequestItem | null
   pendingRequests: AccessRequestItem[]
+  /** True for document owner and for members with the admin role (approve requests, manage Share). */
+  canModerateAccessRequests?: boolean
 }
 
 type VersionEntry = {
@@ -296,7 +299,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
   // extension instances, which can reinitialize the collaborative doc and wipe text.
   const tiptapExtensions = useMemo(
     () => [
-      StarterKit.configure({ history: false }),
+      StarterKit.configure({ undoRedo: false }),
       ...editorExtensions,
       Collaboration.configure({ document: ydoc }),
       CollaborationCursor.configure({
@@ -336,7 +339,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
         if (snapshotTimer.current) clearTimeout(snapshotTimer.current)
         snapshotTimer.current = setTimeout(() => {
           void saveVersionSnapshot('Auto-save')
-        }, 25000)
+        }, 15000)
       },
     },
     // Only ydoc/awareness: recreating the editor destroys the ProseMirror view and can corrupt Yjs sync.
@@ -354,6 +357,9 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
   const canComment = hasDocumentAccess && COMMENTABLE_ROLES.has(accessState?.role ?? '')
   const canModerateComments = hasDocumentAccess && COMMENT_MODERATE_ROLES.has(accessState?.role ?? '')
   const ownerName = accessState?.owner?.full_name || accessState?.owner?.email || 'the document owner'
+  const canModerateAccessRequests = Boolean(
+    accessState?.canModerateAccessRequests ?? (accessState?.isOwner || accessState?.role === 'admin')
+  )
 
   const loadAccessState = useCallback(async () => {
     try {
@@ -560,7 +566,11 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
 
   useEffect(() => {
     if (!accessState) return
-    const shouldPoll = accessState.isOwner || !accessState.hasAccess || accessState.latestRequest?.status === 'pending'
+    const shouldPoll =
+      accessState.isOwner ||
+      accessState.role === 'admin' ||
+      !accessState.hasAccess ||
+      accessState.latestRequest?.status === 'pending'
     if (!shouldPoll) return
     const timer = setInterval(() => {
       void loadAccessState()
@@ -742,12 +752,10 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
     try {
       const snapshotDoc = new Y.Doc()
       Y.applyUpdate(snapshotDoc, base64ToUint8Array(version.yjs_state))
-      const snapshotHtml = snapshotDoc.getXmlFragment('default').toString().trim()
-      if (!snapshotHtml) {
-        notify.error('That snapshot could not be restored.')
-        return
-      }
-      editor.commands.setContent(snapshotHtml, true)
+      // Y.XmlFragment.toString() is not HTML — feeding it to setContent corrupts structure.
+      // Convert via the same Yjs ↔ ProseMirror bridge TipTap Collaboration uses (fragment field: "default").
+      const pmDocJson = yDocToProsemirrorJSON(snapshotDoc, 'default')
+      editor.commands.setContent(pmDocJson, { emitUpdate: true })
       notify.success('Snapshot restored into the current draft.')
     } catch {
       notify.error('That snapshot could not be restored.')
@@ -811,7 +819,11 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
         setStatusError(getResponseErrorMessage(data, 'Unable to send access request.'))
         return
       }
-      notify.success(hasDocumentAccess ? `Role change request sent to ${ownerName}.` : `Access request sent to ${ownerName}.`)
+      notify.success(
+        hasDocumentAccess
+          ? `Role change request sent — the owner and admins will see it in their notifications.`
+          : `Access request sent — the owner and admins will see it in their notifications.`
+      )
       await loadAccessState()
       setNotificationsOpen(false)
     } catch {
@@ -1119,7 +1131,9 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
                   <div>
                     <p className="text-sm font-semibold text-[#201a13]">Editor notifications</p>
                     <p className="mt-1 text-xs text-[#6f6254]">
-                      {accessState?.isOwner ? 'Access requests waiting for your approval.' : 'Document access updates for this editor.'}
+                      {canModerateAccessRequests
+                        ? 'Pending access and role requests (owner and admins can approve).'
+                        : 'Document access updates for this editor.'}
                     </p>
                   </div>
                   <button type="button" onClick={() => setNotificationsOpen(false)} className="rounded-full p-2 transition-colors hover:bg-[#f5ede2]">
@@ -1127,14 +1141,14 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
                   </button>
                 </div>
 
-                {accessState?.isOwner ? (
-                  accessState.pendingRequests.length === 0 ? (
+                {canModerateAccessRequests ? (
+                  (accessState?.pendingRequests.length ?? 0) === 0 ? (
                     <div className="rounded-[20px] border border-dashed px-4 py-5 text-sm text-[#6f6254]" style={{ borderColor: warmTheme.borderStrong }}>
                       No pending access requests right now.
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {accessState.pendingRequests.map((request) => (
+                      {(accessState?.pendingRequests ?? []).map((request) => (
                         <div key={request.id} className="rounded-[20px] border px-4 py-3" style={{ borderColor: warmTheme.border, background: warmTheme.panelSoft }}>
                           <div className="flex items-start gap-3">
                             {request.profiles?.avatar_url ? (
@@ -1191,12 +1205,12 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
                     </p>
                     <p className="text-sm leading-6 text-[#6f6254]">
                       {accessState?.latestRequest?.status === 'pending'
-                        ? `Your request is waiting for ${ownerName} to approve it.`
+                        ? `Your request is waiting for the document owner or an admin to approve it.`
                         : accessState?.latestRequest?.status === 'approved'
                           ? hasDocumentAccess
                             ? `${ownerName} approved your role update request.`
                             : `${ownerName} approved your access request. Refreshing will load the live document.`
-                          : 'You will see access updates here when the document owner responds.'}
+                          : 'You will see access updates here when the owner or an admin responds.'}
                     </p>
 
                     {hasDocumentAccess && accessState?.role !== 'owner' && (
@@ -1268,7 +1282,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
             <span className="rounded-full bg-[#f2e5d3] px-2 py-0.5 text-[11px] font-semibold text-[#9a5b2b]">{comments.length}</span>
           </button>
 
-          {accessState?.isOwner && ShareModal ? (
+          {canModerateAccessRequests && ShareModal ? (
             <ShareModal
               documentId={documentId}
               members={members}
@@ -1410,7 +1424,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
                       <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#998b7d]">Access required</p>
                       <h2 className="mt-2 text-3xl font-semibold tracking-tight text-[#201a13]">Ask the host to open this document for you.</h2>
                       <p className="mt-3 max-w-xl text-sm leading-7 text-[#6f6254]">
-                        This editor is currently blocked because your account is not on the document access list yet. Send a request to {ownerName}, and the approval will appear right inside their editor notifications.
+                        This editor is currently blocked because your account is not on the document access list yet. Send a request — the document owner and admins see it in their editor notifications and can approve it.
                       </p>
                     </div>
                     <div className="rounded-[24px] border px-4 py-3" style={{ background: warmTheme.accentSoft, borderColor: warmTheme.border }}>
@@ -1442,7 +1456,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
                       </div>
                       <p className="mt-2 text-sm leading-6 text-[#6f6254]">
                         {accessState.latestRequest.status === 'pending'
-                          ? `${ownerName} has your request and can approve it from their editor notifications.`
+                          ? `The owner or an admin has your request and can approve it from their editor notifications.`
                           : accessState.latestRequest.status === 'approved'
                             ? 'Refresh this page and the live collaborative canvas will load.'
                             : 'You can send a new request whenever you need access again.'}
