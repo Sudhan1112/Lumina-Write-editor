@@ -6,7 +6,7 @@ export const playNotifySound = () => {
     const audio = new Audio('https://cdn.freesound.org/previews/511/511484_6890478-lq.mp3')
     audio.volume = 0.5
     audio.play().catch(() => {})
-  } catch (error) {
+  } catch {
     // Ignore autoplay or audio instantiation errors
   }
 }
