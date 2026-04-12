@@ -28,7 +28,7 @@ Next.js + TipTap, **Yjs** over **Socket.IO**, **Supabase** Auth, **PostgreSQL** 
 
 ## Documentation handbook
 
-Technical articles live under **`docs/`**. Each page has **Previous / Next** links at the bottom. The **index below is the only README** you need—everything is linked from here.
+Technical articles live under **`docs/`** (this file is the **only** `README` at the repo root). Each doc has **Previous / Next** links at the bottom.
 
 ### How to use the docs folder
 
@@ -37,44 +37,49 @@ Technical articles live under **`docs/`**. Each page has **Previous / Next** lin
 | Set up your machine and run both apps | [docs/getting-started.md](docs/getting-started.md) |
 | Understand flows, diagrams, and where code lives | [docs/architecture.md](docs/architecture.md) |
 | See REST routes and Socket.IO at a glance | [docs/api-overview.md](docs/api-overview.md) |
+| **REST request/response contracts** (OpenAPI-style, markdown) | [docs/rest-api-reference.md](docs/rest-api-reference.md) |
 | Deep dive into the sync server (auth, payloads, errors) | [docs/sync-server-api.md](docs/sync-server-api.md) |
 | Learn tables, RLS, and the role matrix | [docs/data-model.md](docs/data-model.md) |
 | Read security notes, tradeoffs, hosting, AI attribution | [docs/security-and-operations.md](docs/security-and-operations.md) |
-| Open a PR (lint, secrets, SQL changes) | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) · [CONTRIBUTING.md](CONTRIBUTING.md) (repo root) |
+| Open a PR (lint, secrets, SQL changes) | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) |
 | Debug “can’t connect” / rejection reasons | [docs/troubleshooting.md](docs/troubleshooting.md) |
 
 ### Suggested reading order
 
-Follow **1 → 7** the first time; use [docs/troubleshooting.md](docs/troubleshooting.md) whenever something breaks.
+Follow **1 → 8** the first time; use [docs/troubleshooting.md](docs/troubleshooting.md) whenever something breaks.
 
 | Step | Doc | Overview |
 | --- | --- | --- |
 | **1** | [Getting started](docs/getting-started.md) | Clone, `.env`, `schema.sql`, `dev:server` / `dev:web`, root npm scripts. |
 | **2** | [Architecture](docs/architecture.md) | Flows, `useCollabEditor`, sync, persistence, Mermaid diagrams, tech stack, repo spine. |
 | **3** | [API overview](docs/api-overview.md) | `app/api` route map + Socket.IO cheat sheet. |
-| **4** | [Sync server reference](docs/sync-server-api.md) | `/health`, CORS, JWT handshake, events, `doc:rejected` reasons. |
-| **5** | [Data model & roles](docs/data-model.md) | ER diagram, RLS, role matrix, enforcement locations. |
-| **6** | [Security & operations](docs/security-and-operations.md) | Security, tradeoffs, hosting, AI attribution. |
-| **7** | [Contributing](docs/CONTRIBUTING.md) | PR checklist; same guide as [CONTRIBUTING.md](CONTRIBUTING.md) at repo root. |
+| **4** | [REST API reference](docs/rest-api-reference.md) | Per-route methods, bodies, response shapes, status codes. |
+| **5** | [Sync server reference](docs/sync-server-api.md) | `/health`, CORS, JWT handshake, events, `doc:rejected` reasons. |
+| **6** | [Data model & roles](docs/data-model.md) | ER diagram, RLS, role matrix, enforcement locations. |
+| **7** | [Security & operations](docs/security-and-operations.md) | Security, tradeoffs, hosting, AI attribution. |
+| **8** | [Contributing](docs/CONTRIBUTING.md) | PR checklist (lint, secrets, SQL/RLS callouts). |
 
-**Optional:** [apps/web/README.md](apps/web/README.md) · [`.env.example`](.env.example)
+**Optional:** [docs/web-nextjs-notes.md](docs/web-nextjs-notes.md) (Next.js template notes) · [`.env.example`](.env.example)
 
 ### Docs layout
 
 ```text
 docs/
-├── README.md              # pointer to handbook in root README
 ├── getting-started.md
 ├── architecture.md
 ├── api-overview.md
+├── rest-api-reference.md
 ├── sync-server-api.md
 ├── data-model.md
 ├── security-and-operations.md
 ├── troubleshooting.md
-└── CONTRIBUTING.md
+├── CONTRIBUTING.md
+└── web-nextjs-notes.md
 ```
 
 **Start here:** [docs/getting-started.md](docs/getting-started.md)
+
+**Contributing:** the guide lives only at [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) (GitHub does not auto-surface it from the repo root; use that link for PRs).
 
 ---
 

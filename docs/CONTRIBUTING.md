@@ -1,13 +1,13 @@
 # Contributing to Lumina Write
 
-This page is the **handbook copy** of the contributing guide (same intent as [CONTRIBUTING.md at the repo root](../CONTRIBUTING.md), which some tools surface automatically). Links below are **relative to `docs/`** so they work when you browse the documentation folder on GitHub.
+**Single copy** of the contributing guide (all project Markdown except the [root README](../README.md) lives under **`docs/`**). Links below are **relative to `docs/`**.
 
-This file is **only** about how we collaborate on code (PRs, checks, secrets). It is **not** a duplicate of the setup guide.
+This file is **only** about how we collaborate on code (PRs, checks, secrets). It is **not** the setup guide—use [Getting started](getting-started.md) for that.
 
 ## Before you code
 
 1. **Environment and running the app** — follow [Getting started](getting-started.md) (clone, `npm install`, `.env`, database, `dev:server` / `dev:web`).
-2. **Architecture and APIs** — use the handbook in the [root README](../README.md#documentation-handbook) (*numbered path: Getting started → Architecture → API overview → …*).
+2. **Architecture and APIs** — use the handbook in the [root README](../README.md#documentation-handbook) (*steps 1–8, including REST API reference and sync server docs*).
 3. **Something broken?** — see [Troubleshooting](troubleshooting.md).
 
 ## Project layout (reminder)

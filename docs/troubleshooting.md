@@ -38,6 +38,10 @@ Routes use the Supabase session from cookies (`createClient()` in server handler
 
 Sharing and access routes enforce owner/admin/editor rules in code; read the handler under `apps/web/src/app/api/documents/[id]/...` for the exact message.
 
+### `400` Invalid JSON (REST)
+
+Some routes use `apps/web/src/lib/api-route-errors.ts`. Malformed JSON or a non-object body can return **`400`** with `{ "error": "Invalid JSON body" }` or **`JSON body must be an object`**.
+
 ### Parsing JSON errors in the UI
 
 **Code:** `apps/web/src/lib/http.ts` — helpers used by components to read `{ error?: string }` from responses.

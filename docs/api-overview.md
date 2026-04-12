@@ -1,6 +1,9 @@
 # API overview
 
-High-level reference for **HTTP** (Next.js Route Handlers) and **Socket.IO** (sync server). For JWT placement, full event payloads, and `doc:rejected` reasons, see the [Sync server reference](sync-server-api.md).
+High-level reference for **HTTP** (Next.js Route Handlers) and **Socket.IO** (sync server).
+
+**Full REST contracts** (bodies, fields, status codes): [REST API reference](rest-api-reference.md).  
+**Sync (Socket.IO) detail:** [Sync server reference](sync-server-api.md).
 
 ## HTTP API — route map
 
@@ -35,10 +38,10 @@ For request/response **field-level** documentation, treat the route files as the
 | `awareness:update` / `awareness:sync` / `awareness:diff` | Both | Presence |
 | `presence:joined` | Server → room | Optional notify |
 
-**Next level of detail:** [Sync server (Socket.IO) reference →](sync-server-api.md)
+**Next:** [REST API reference (full contracts) →](rest-api-reference.md) · [Sync server reference →](sync-server-api.md)
 
 **When something breaks:** [Troubleshooting →](troubleshooting.md)
 
 ---
 
-| [← Previous: Architecture](architecture.md) | [Handbook (root README)](../README.md#documentation-handbook) | [Next: Sync server reference →](sync-server-api.md) |
+| [← Previous: Architecture](architecture.md) | [Handbook (root README)](../README.md#documentation-handbook) | [Next: REST API reference →](rest-api-reference.md) |
