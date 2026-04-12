@@ -991,7 +991,7 @@ function EditorInner({ documentId, user }: { documentId: string; user: User }) {
         tooltip: 'Connecting to document…',
       }
     }
-    if (statusError || (syncRejectMessage && !accessState?.hasAccess)) {
+    if (statusError || syncRejectMessage) {
       return {
         label: 'Connection issue',
         icon: <SafeIcon icon={WifiOff} className="h-3.5 w-3.5" />,

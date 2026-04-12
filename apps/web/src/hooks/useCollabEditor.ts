@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate } from 'y-protocols/awareness'
 import io, { Socket } from 'socket.io-client'
+import type { User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { base64ToUint8Array, uint8ArrayToBase64 } from '@/lib/base64'
 import {
@@ -32,7 +33,31 @@ function resolveSyncServerUrl(): string {
   return url.replace(/\/$/, '')
 }
 
-export function useCollabEditor(documentId: string, user: any) {
+function messageForSyncRejectReason(reason: string | undefined): string {
+  switch (reason) {
+    case 'write_forbidden':
+      return 'Live editing is off for your role (viewer or commenter). You can read and comment, but only editors and above can change the document text. Ask for a higher role if you need to edit.'
+    case 'presence_forbidden':
+      return 'Live presence could not be updated—your access to this document may have changed. Refresh the page or ask the owner to confirm your membership.'
+    case 'server_error':
+      return 'The sync service hit an error loading this document. Wait a moment and refresh. If it keeps happening, the service may be down or misconfigured.'
+    case 'invalid_update':
+      return 'Live sync received invalid data and stopped for safety. Refresh the page to reconnect.'
+    case 'invalid_document':
+      return 'Live sync could not start because the document link is invalid. Go back and open the document again.'
+    case 'access_denied':
+    default:
+      return "Live sync is blocked: you are not on this document's access list, or the document does not exist. Ask the owner to invite you, then refresh."
+  }
+}
+
+function awarenessEntryUser(state: unknown): PresenceUser | undefined {
+  if (!state || typeof state !== 'object') return undefined
+  const candidate = (state as { user?: PresenceUser }).user
+  return candidate?.id ? candidate : undefined
+}
+
+export function useCollabEditor(documentId: string, user: User) {
   const ydocRef = useRef<Y.Doc | null>(null)
   const awarenessRef = useRef<Awareness | null>(null)
   const sessionSeedRef = useRef(getCursorSessionSeed())
@@ -95,7 +120,7 @@ export function useCollabEditor(documentId: string, user: any) {
 
     const collectOtherUsers = () =>
       Array.from(awareness.getStates().values())
-        .map((state: any) => state?.user as PresenceUser | undefined)
+        .map(awarenessEntryUser)
         .filter((presence): presence is PresenceUser => Boolean(presence?.id))
         .filter((presence) => presence.id !== user.id)
 
@@ -158,7 +183,7 @@ export function useCollabEditor(documentId: string, user: any) {
       }
       ensureDistinctColor()
       const states = Array.from(awareness.getStates().values())
-        .map((state: any) => state?.user as PresenceUser | undefined)
+        .map(awarenessEntryUser)
         .filter((presence): presence is PresenceUser => Boolean(presence?.id))
       setActiveUsers(states)
     }
@@ -212,30 +237,50 @@ export function useCollabEditor(documentId: string, user: any) {
         console.warn('[sync] connect_error', url, err.message)
         setIsConnected(false)
         setConnectionState('error')
+        setSyncRejectMessage(
+          `Could not reach the live sync server at ${url}. For local dev, run "npm run dev:server" from the repo root and check NEXT_PUBLIC_SYNC_SERVER_URL in apps/web/.env.local.`
+        )
       })
 
-      newSocket.on('doc:rejected', () => {
-        console.warn('[sync] doc:rejected - not a member or document missing')
-        setSyncRejectMessage(
-          "Live sync is blocked: you are not on this document's access list, or the document does not exist. Ask the owner to invite you, then refresh."
-        )
+      newSocket.on('doc:rejected', (payload?: { reason?: string }) => {
+        const reason = typeof payload?.reason === 'string' ? payload.reason : undefined
+        console.warn('[sync] doc:rejected', reason ?? '(no reason)')
+        setSyncRejectMessage(messageForSyncRejectReason(reason))
         setIsConnected(false)
         setConnectionState('error')
       })
 
       newSocket.on('doc:load', (stateBase64: string) => {
-        const stateBinary = base64ToUint8Array(stateBase64)
-        Y.applyUpdate(ydoc, stateBinary, 'remote')
+        try {
+          const stateBinary = base64ToUint8Array(stateBase64)
+          Y.applyUpdate(ydoc, stateBinary, 'remote')
+        } catch (e) {
+          console.error('[sync] doc:load apply failed', e)
+          setSyncRejectMessage(messageForSyncRejectReason('invalid_update'))
+          setIsConnected(false)
+          setConnectionState('error')
+        }
       })
 
       newSocket.on('doc:broadcast', (updateBase64: string) => {
-        const updateBinary = base64ToUint8Array(updateBase64)
-        Y.applyUpdate(ydoc, updateBinary, 'remote')
+        try {
+          const updateBinary = base64ToUint8Array(updateBase64)
+          Y.applyUpdate(ydoc, updateBinary, 'remote')
+        } catch (e) {
+          console.error('[sync] doc:broadcast apply failed', e)
+          setSyncRejectMessage(messageForSyncRejectReason('invalid_update'))
+          setIsConnected(false)
+          setConnectionState('error')
+        }
       })
 
       newSocket.on('awareness:diff', (updateBase64: string) => {
-        const update = base64ToUint8Array(updateBase64)
-        applyAwarenessUpdate(awareness, update, 'remote')
+        try {
+          const update = base64ToUint8Array(updateBase64)
+          applyAwarenessUpdate(awareness, update, 'remote')
+        } catch (e) {
+          console.error('[sync] awareness:diff apply failed', e)
+        }
       })
 
       ydoc.on('update', onYdocUpdate)

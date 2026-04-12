@@ -91,6 +91,10 @@ function rejectDocumentAccess(socket: Socket, documentId: string, reason: string
   }
 }
 
+function isNonEmptyDocumentId(id: unknown): id is string {
+  return typeof id === 'string' && id.trim().length > 0
+}
+
 // Real-time synchronization state per room
 // Each room has an Awareness state, which is just an object of socket IDs to awareness data
 const roomAwareness = new Map<string, Record<string, any>>()
@@ -112,6 +116,10 @@ io.on('connection', (socket: Socket) => {
   console.log('Client connected:', socket.id, 'User:', socket.data.user?.email)
 
   socket.on('doc:join', async (documentId: string) => {
+    if (!isNonEmptyDocumentId(documentId)) {
+      socket.emit('doc:rejected', { reason: 'invalid_document' })
+      return
+    }
     try {
       const access = await assertDocumentAccess(socket.data.user.id, documentId)
       socket.data.documentAccess = {
@@ -171,16 +179,30 @@ io.on('connection', (socket: Socket) => {
       await resolveSocketAccess(socket, documentId, true)
       const updateBinary = Buffer.from(updateBase64, 'base64')
       const doc = await getOrCreateDoc(documentId)
-      Y.applyUpdate(doc, updateBinary)
-      
+      try {
+        Y.applyUpdate(doc, updateBinary)
+      } catch (applyErr) {
+        console.warn('doc:update invalid Yjs payload', documentId, applyErr)
+        rejectDocumentAccess(socket, documentId, 'invalid_update')
+        return
+      }
+
       schedulePersist(documentId, doc)
 
       // Broadcast to other clients in room
       socket.to(documentId).emit('doc:broadcast', updateBase64)
     } catch (e) {
-      console.warn('doc:update denied', documentId, e)
-      rejectDocumentAccess(socket, documentId, 'write_forbidden')
-      console.error('Error applying Yjs update:', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg === 'Read-only role') {
+        console.warn('doc:update write denied', documentId)
+        rejectDocumentAccess(socket, documentId, 'write_forbidden')
+      } else if (msg === 'Forbidden' || msg === 'Document not found') {
+        console.warn('doc:update access revoked', documentId, msg)
+        rejectDocumentAccess(socket, documentId, 'access_denied')
+      } else {
+        console.error('doc:update error', documentId, e)
+        rejectDocumentAccess(socket, documentId, 'server_error')
+      }
     }
   })
 
