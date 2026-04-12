@@ -91,10 +91,11 @@ The `doc:rejected` payload includes a machine-oriented `reason` string. The web 
 ## Related documentation
 
 - [Handbook (root README)](../README.md#documentation-handbook) — agenda, reading order, and jump links.  
-- [API overview](api-overview.md) — REST route map + socket cheat sheet.  
+- [API overview](api-overview.md) — REST + socket cheat sheet.  
+- [REST API reference](rest-api-reference.md) — request/response contracts for `/api/*`.  
 - [Troubleshooting](troubleshooting.md) — connection issues and `doc:rejected` hints.  
-- [Contributing](CONTRIBUTING.md) — PR checklist *(repo root: [../CONTRIBUTING.md](../CONTRIBUTING.md))*.
+- [Contributing](CONTRIBUTING.md) — PR checklist.
 
 ---
 
-| [← Previous: API overview](api-overview.md) | [Handbook (root README)](../README.md#documentation-handbook) | [Next: Data model & roles →](data-model.md) |
+| [← Previous: REST API reference](rest-api-reference.md) | [Handbook (root README)](../README.md#documentation-handbook) | [Next: Data model & roles →](data-model.md) |

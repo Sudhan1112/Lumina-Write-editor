@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { parseJsonObjectOptional } from '@/lib/api-route-errors'
 
 type DocumentRow = {
   id: string
@@ -134,7 +135,9 @@ export async function POST(req: Request) {
 
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { title } = await req.json()
+  const parsedBody = await parseJsonObjectOptional(req)
+  if (!parsedBody.ok) return parsedBody.response
+  const title = typeof parsedBody.body.title === 'string' ? parsedBody.body.title : undefined
 
   const { data, error } = await supabase
     .from('documents')

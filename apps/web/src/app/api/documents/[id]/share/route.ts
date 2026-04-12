@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { parseJsonObject } from '@/lib/api-route-errors'
 
 const MANAGEABLE_ROLES = ['viewer', 'commenter', 'editor', 'admin'] as const
 
@@ -140,9 +141,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json()
-  const user_id = body?.user_id as string | undefined
-  const role = body?.role as string | undefined
+  const parsed = await parseJsonObject(req)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.body
+  const user_id = typeof body.user_id === 'string' ? body.user_id : undefined
+  const role = typeof body.role === 'string' ? body.role : undefined
 
   if (!user_id || !role) {
     return NextResponse.json({ error: 'user_id and role are required' }, { status: 400 })
